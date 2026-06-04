@@ -204,7 +204,7 @@ export default function HomePage() {
             </div>
             <div>
               <span className="font-bold text-slate-900 text-sm sm:text-base">CMR Elections</span>
-              <span className="hidden sm:block text-xs text-slate-400 leading-none">Student Council 2024</span>
+              <span className="hidden sm:block text-xs text-slate-400 leading-none">Student Council 2026</span>
             </div>
           </div>
 

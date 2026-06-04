@@ -12,9 +12,12 @@ export default function LoginPage() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
 
-  const [loginMode, setLoginMode] = useState<'student' | 'admin'>('student');
+const [loginMode, setLoginMode] =
+  useState<'student' | 'rollno' | 'admin'>('student');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rollNo, setRollNo] = useState('');
+  const [dob, setDob] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -42,6 +45,41 @@ export default function LoginPage() {
     }
     setIsLoading(false);
   };
+  
+  const handleRollNoLogin = async (
+  e: React.FormEvent
+) => {
+  e.preventDefault();
+
+  const { data, error } =
+    await supabase
+      .from('students')
+      .select('*')
+      .eq('roll_no', rollNo)
+      .eq('dob', dob)
+      .single();
+
+  if (error || !data) {
+    setMessage({
+      type: 'error',
+      text: 'Invalid Roll Number or DOB',
+    });
+    return;
+  }
+
+  localStorage.setItem(
+    'student',
+    JSON.stringify(data)
+  );
+
+  setMessage({
+    type: 'success',
+    text: 'Login successful',
+  });
+
+  router.push('/');
+};
+
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +117,7 @@ export default function LoginPage() {
     }
     setIsLoading(false);
   };
+  
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
@@ -119,6 +158,21 @@ export default function LoginPage() {
           >
             Student Login
           </button>
+
+                    <button
+            onClick={() => {
+              setLoginMode('rollno');
+              setMessage(null);
+            }}
+            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
+              loginMode === 'rollno'
+                ? 'bg-green-600 text-white'
+                : 'bg-white/10 text-slate-300'
+            }`}
+          >
+            Roll No Login
+          </button>
+
           <button
             onClick={() => {
               setLoginMode('admin');
@@ -158,9 +212,14 @@ export default function LoginPage() {
           )}
 
           <form
-            onSubmit={loginMode === 'student' ? handleStudentLogin : handleAdminLogin}
-            className="space-y-4"
-          >
+            onSubmit={
+              loginMode === 'student'
+                ? handleStudentLogin
+                : loginMode === 'rollno'
+                ? handleRollNoLogin
+                : handleAdminLogin
+            }
+>
             {/* Email Input */}
             <div>
               <label className="block text-sm font-medium text-slate-200 mb-2">Email Address</label>
