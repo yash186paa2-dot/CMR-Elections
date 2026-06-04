@@ -43,21 +43,16 @@ export function AdminLayout({ children, activePage }: AdminLayoutProps) {
         {/* Logo */}
         <div className="p-6 border-b border-slate-800">
           <div className="flex items-center gap-3">
-           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+           <div className="flex items-center justify-center">
 
+          <div className="text-center mb-6">
           <div className="text-center mb-6">
             <img
               src="/logo.png"
               alt="CMR Logo"
-              width={180}
-              height={180}
-              style={{
-                background: "white",
-                padding: "10px",
-                borderRadius: "10px"
-              }}
+              className="w-40 mx-auto"
             />
-          
+          </div>
           </div>
           </div>
             <div>

@@ -312,21 +312,16 @@ export default function HomePage() {
 
         {/* Position filter tabs */}
         <div className="sticky top-16 z-30 -mx-4 mb-8 overflow-x-auto border-b border-slate-200/80 bg-[#f6f8fb]/95 px-4 py-3 backdrop-blur scrollbar-hide sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
-          <div className="flex gap-2">
-            {positions.map((pos) => (
-              <button
-                key={pos}
-                onClick={() => setActivePosition(pos)}
-                className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                  activePosition === pos
-                    ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/15'
-                    : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-                }`}
-              >
-                {pos === 'all' ? 'All Positions' : pos}
-              </button>
-            ))}
-          </div>
+        <div className="flex gap-3 overflow-x-auto whitespace-nowrap pb-2">
+          {positions.map((position) => (
+            <button
+              key={position}
+              className="whitespace-nowrap"
+            >
+              {position}
+            </button>
+          ))}
+        </div>
         </div>
 
         {dataLoading ? (
@@ -356,7 +351,7 @@ export default function HomePage() {
           Object.entries(grouped).map(([position, positionCandidates]) => {
             const positionVote = myVotes.find((v) => v.position === position);
             return (
-              <section key={position} className="mb-10 animate-fade-in-up">
+              <section key={position} className="mb-6 md:mb-10 animate-fade-in-up">
                 <div className="flex items-center gap-3 mb-5">
                   <div className="w-1 h-8 bg-cyan-600 rounded-full" />
                   <h2 className="text-xl font-bold text-slate-900">{position}</h2>

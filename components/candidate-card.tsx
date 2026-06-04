@@ -35,7 +35,7 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onVote, rank 
       )}
 
       {/* Photo */}
-      <div className="relative aspect-[4/3] bg-gradient-to-br from-slate-100 via-cyan-50 to-emerald-50 overflow-hidden">
+      <div className="relative h-96 sm:h-[500px] bg-gradient-to-br from-slate-100 via-cyan-50 to-emerald-50 overflow-hidden">
         {candidate.photo_url ? (
           <Image
             src={candidate.photo_url}
@@ -43,7 +43,7 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onVote, rank 
             fill
             priority={rank < 2}
             loading={rank < 2 ? 'eager' : 'lazy'}
-            className="object-cover object-top transition-transform duration-700 ease-out group-hover:scale-[1.035]"
+            className="object-contain object-center bg-white transition-transform duration-700 ease-out"
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           />
         ) : (
@@ -63,7 +63,7 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onVote, rank 
 
       {/* Content */}
       <div className="p-5">
-        <h3 className="text-lg font-bold text-slate-950 mb-1 leading-snug">{candidate.name}</h3>
+        <h3 className="text-base sm:text-lg font-bold text-slate-950 mb-1 leading-snug">{candidate.name}</h3>
 
         <div className="flex flex-wrap gap-2 mb-3">
           <span className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-200">

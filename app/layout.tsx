@@ -5,23 +5,13 @@ import { AuthProvider } from '@/components/auth-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
-export const metadata: Metadata = {
-  title: 'CMR Elections - Student Voting System',
-  description: 'CMR College Student Council Election 2024',
+export const metadata = {
+  title: 'CMR Elections',
+  description: 'CMR National PU College Student Council Elections',
   openGraph: {
-    images: [
-      {
-        url: 'https://bolt.new/static/og_default.png',
-      },
-    ],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    images: [
-      {
-        url: 'https://bolt.new/static/og_default.png',
-      },
-    ],
+    title: 'CMR Elections',
+    description: 'CMR National PU College Student Council Elections',
+    images: ['/logo.png'],
   },
 };
 

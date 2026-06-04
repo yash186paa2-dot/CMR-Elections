@@ -89,7 +89,7 @@ export default function LoginPage() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-blue-400/5 rounded-full blur-2xl" />
       </div>
 
-      <div className="relative z-10 w-full max-w-md">
+      <div className="relative z-10 w-full w-full max-w-md px-4">
         {/* Logo + college name */}
         <div className="text-center mb-10 animate-fade-in-up">
           <div className="text-center mb-6">
@@ -99,7 +99,7 @@ export default function LoginPage() {
               className="w-40 mx-auto"
             />
           </div>
-          <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">CMR Elections</h1>
+          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">CMR Elections</h1>
           <p className="text-blue-300 text-lg">Student Council Elections 2026</p>
           <p className="text-slate-400 text-sm mt-1">CMR NATIONAL PU COLLEGE</p>
         </div>
@@ -138,7 +138,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl animate-fade-in-up animation-delay-200">
+        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-5 md:p-8 shadow-2xl animate-fade-in-up animation-delay-200">
           <div className="text-center mb-8">
             <h2 className="text-2xl font-semibold text-white mb-2">
               {loginMode === 'student' ? 'Welcome, Voter' : 'Admin Access'}
