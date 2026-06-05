@@ -44,3 +44,14 @@ export type Admin = {
   email: string;
   created_at: string;
 };
+
+export type Student = {
+  id: string;
+  roll_no: string;
+  dob: string;
+  full_name: string;
+  department: string;
+  auth_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+};

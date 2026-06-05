@@ -31,8 +31,12 @@ export default function HomePage() {
   }, [user, isGuest, loading, router]);
 
   useEffect(() => {
-    if (!loading && user && !user.email?.endsWith('@cmr.ac.in')) {
-      signOut().then(() => router.replace('/login?error=invalid_domain'));
+    if (!loading && user) {
+      const isCollegeEmail = user.email?.endsWith('@cmr.ac.in');
+      const isRollStudent = user.user_metadata?.login_type === 'roll_student';
+      if (!isCollegeEmail && !isRollStudent) {
+        signOut().then(() => router.replace('/login?error=invalid_domain'));
+      }
     }
   }, [user, loading, signOut, router]);
 

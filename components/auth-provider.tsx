@@ -2,7 +2,14 @@
 
 import { useEffect, useState, createContext, useContext } from 'react';
 import { supabase } from '@/lib/supabase';
+import type { RollLoginFieldErrors } from '@/lib/student-auth';
+import { validateRollLoginInput } from '@/lib/student-auth';
 import type { User, Session } from '@supabase/supabase-js';
+
+type AuthError = {
+  message: string;
+  fieldErrors?: RollLoginFieldErrors;
+};
 
 type AuthContextType = {
   user: User | null;
@@ -10,8 +17,15 @@ type AuthContextType = {
   loading: boolean;
   isAdmin: boolean;
   isGuest: boolean;
-  signInWithEmail: (email: string) => Promise<{ error: any }>;
-  signInWithPassword: (email: string, password: string) => Promise<{ error: any }>;
+  signInWithEmail: (email: string) => Promise<{ error: AuthError | null }>;
+  signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signInWithRoll: (
+    rollNo: string,
+    dob: string
+  ) => Promise<{
+    error: AuthError | null;
+    student?: { id: string; roll_no: string; full_name: string };
+  }>;
   signInAsGuest: () => void;
   signInAsAdminGuest: () => void;
   signOut: () => Promise<void>;
@@ -25,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
   isGuest: false,
   signInWithEmail: async () => ({ error: null }),
   signInWithPassword: async () => ({ error: null }),
+  signInWithRoll: async () => ({ error: null }),
   signInAsGuest: () => {},
   signInAsAdminGuest: () => {},
   signOut: async () => {},
@@ -78,19 +93,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: { message: 'Only @cmr.ac.in email addresses are allowed' } };
     }
 
-    return await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo:'https://cmr-elections-3k3d.vercel.app/auth/callback',
+        emailRedirectTo: 'https://cmr-elections-3k3d.vercel.app/auth/callback',
       },
     });
+
+    return { error: error ? { message: error.message } : null };
   };
 
   const signInWithPassword = async (email: string, password: string) => {
-    return await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    return { error: error ? { message: error.message } : null };
+  };
+
+  const signInWithRoll = async (rollNo: string, dob: string) => {
+    const validation = validateRollLoginInput(rollNo, dob);
+    if (!validation.valid) {
+      return {
+        error: {
+          message: validation.message,
+          fieldErrors: validation.errors,
+        },
+      };
+    }
+
+    let response: Response;
+    try {
+      response = await fetch('/api/auth/roll-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roll_no: validation.roll_no,
+          dob: validation.dob,
+        }),
+      });
+    } catch {
+      return {
+        error: { message: 'Network error. Check your connection and try again.' },
+      };
+    }
+
+    const payload = (await response.json()) as {
+      error?: string;
+      fieldErrors?: RollLoginFieldErrors;
+      email?: string;
+      token_hash?: string;
+      student?: { id: string; roll_no: string; full_name: string };
+    };
+
+    if (!response.ok) {
+      return {
+        error: {
+          message: payload.error || 'Invalid roll number or date of birth.',
+          fieldErrors: payload.fieldErrors,
+        },
+      };
+    }
+
+    if (!payload.token_hash) {
+      return { error: { message: 'Unable to complete login. Please try again.' } };
+    }
+
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: payload.token_hash,
+      type: 'magiclink',
+    });
+
+    if (error) {
+      return { error: { message: error.message || 'Unable to complete login.' } };
+    }
+
+    return { error: null, student: payload.student };
   };
 
   const signInAsGuest = () => {
@@ -120,6 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isGuest,
         signInWithEmail,
         signInWithPassword,
+        signInWithRoll,
         signInAsGuest,
         signInAsAdminGuest,
         signOut,
