@@ -150,7 +150,7 @@ supabase.auth.getSession()
 ```typescript
 supabase
   .from('candidates')
-  .select('*')
+  .select('id,name,position,image_url,department')
   .order('position')
   .order('name')
 ```
@@ -201,7 +201,7 @@ supabase.from('votes').insert({
 ```typescript
 supabase
   .from('votes')
-  .select('*')
+  .select('id,name,position,image_url,department')
   .eq('voter_id', user.id)
 ```
 
@@ -209,7 +209,7 @@ supabase
 ```typescript
 supabase
   .from('votes')
-  .select('*')
+  .select('id,name,position,image_url,department')
 ```
 
 ### Admins
