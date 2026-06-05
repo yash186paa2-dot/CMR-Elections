@@ -21,7 +21,6 @@ export default function HomePage() {
   const [confirmCandidate, setConfirmCandidate] = useState<Candidate | null>(null);
   const [successCandidate, setSuccessCandidate] = useState<Candidate | null>(null);
   const [votingLoading, setVotingLoading] = useState(false);
-  const [activePosition, setActivePosition] = useState<string>('all');
   const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
 
   useEffect(() => {
@@ -79,23 +78,18 @@ export default function HomePage() {
   }, [user, isGuest, fetchData]);
 
   const positions = useMemo(
-    () => ['all', ...Array.from(new Set(candidates.map((c) => c.position)))],
+    () => Array.from(new Set(candidates.map((c) => c.position))),
     [candidates]
-  );
-
-  const filtered = useMemo(
-    () => (activePosition === 'all' ? candidates : candidates.filter((c) => c.position === activePosition)),
-    [activePosition, candidates]
   );
 
   const grouped = useMemo(
     () =>
-      filtered.reduce<Record<string, Candidate[]>>((acc, c) => {
+      candidates.reduce<Record<string, Candidate[]>>((acc, c) => {
         if (!acc[c.position]) acc[c.position] = [];
         acc[c.position].push(c);
         return acc;
       }, {}),
-    [filtered]
+    [candidates]
   );
 
   const handleVoteConfirm = async () => {
@@ -182,7 +176,7 @@ export default function HomePage() {
     }
   };
 
-  const totalPositions = positions.length - 1;
+  const totalPositions = positions.length;
   const votedPositions = myVotes.length;
   const completionPercent = totalPositions > 0 ? Math.round((votedPositions / totalPositions) * 100) : 0;
 
@@ -292,7 +286,7 @@ export default function HomePage() {
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      {positions.slice(1).map((pos) => {
+                      {positions.map((pos) => {
                         const voted = myVotes.some((v) => v.position === pos);
                         return (
                           <div key={pos} className="flex items-center gap-2 text-xs">
@@ -312,20 +306,6 @@ export default function HomePage() {
         <div className="mb-5 flex items-center gap-2 rounded-2xl border border-cyan-100 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm animate-fade-in-up animation-delay-100">
           <Sparkles className="h-4 w-4 flex-shrink-0 text-cyan-600" />
           <span className="min-w-0">Fast mobile ballot, secure single-vote positions, and live progress on this device.</span>
-        </div>
-
-        {/* Position filter tabs */}
-        <div className="sticky top-16 z-30 -mx-4 mb-8 overflow-x-auto border-b border-slate-200/80 bg-[#f6f8fb]/95 px-4 py-3 backdrop-blur scrollbar-hide sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
-        <div className="flex gap-3 overflow-x-auto whitespace-nowrap pb-2">
-          {positions.map((position) => (
-            <button
-              key={position}
-              className="whitespace-nowrap"
-            >
-              {position}
-            </button>
-          ))}
-        </div>
         </div>
 
         {dataLoading ? (
