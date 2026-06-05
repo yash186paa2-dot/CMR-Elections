@@ -2,7 +2,16 @@
 
 import { memo, useState } from 'react';
 import Image from 'next/image';
-import { CheckCircle2, Vote, Briefcase, BookOpen, GraduationCap, ChevronDown, ChevronUp, UserRound } from 'lucide-react';
+import {
+  CheckCircle2,
+  Vote,
+  Briefcase,
+  BookOpen,
+  GraduationCap,
+  ChevronDown,
+  ChevronUp,
+  UserRound,
+} from 'lucide-react';
 import type { Candidate } from '@/lib/supabase';
 
 type Props = {
@@ -18,103 +27,120 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onVote, rank 
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div
-      className={`candidate-card relative bg-white rounded-[1.35rem] shadow-[0_16px_50px_rgba(15,23,42,0.07)] border transition-all duration-300 overflow-hidden group transform-gpu ${
+    <article
+      className={`candidate-card group relative flex flex-col overflow-hidden rounded-2xl border-2 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.08)] transition-all duration-300 sm:rounded-[1.35rem] ${
         isVotedFor
-          ? 'border-emerald-400 ring-4 ring-emerald-100'
-          : 'border-slate-200/80 hover:border-cyan-300 hover:shadow-[0_22px_70px_rgba(8,145,178,0.16)] sm:hover:-translate-y-1'
+          ? 'border-emerald-500 ring-4 ring-emerald-200/80 shadow-[0_20px_50px_rgba(16,185,129,0.2)]'
+          : hasVoted
+            ? 'border-slate-200 opacity-75'
+            : 'border-slate-200 hover:border-cyan-400 hover:shadow-[0_20px_55px_rgba(8,145,178,0.14)] active:scale-[0.99] sm:hover:-translate-y-1'
       }`}
     >
       {isVotedFor && (
-        <div className="absolute top-3 right-3 z-10">
-          <div className="flex items-center gap-1.5 bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg shadow-emerald-900/15">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Your Vote
-          </div>
+        <div
+          className="absolute inset-x-0 top-0 z-20 flex items-center justify-center gap-2 bg-emerald-600 py-2.5 text-sm font-bold uppercase tracking-wide text-white"
+          aria-label="Your selected candidate"
+        >
+          <CheckCircle2 className="h-5 w-5" aria-hidden />
+          Your vote for this position
         </div>
       )}
 
-      {/* Photo */}
-      <div className="relative h-96 sm:h-[500px] bg-gradient-to-br from-slate-100 via-cyan-50 to-emerald-50 overflow-hidden">
+      <div
+        className={`relative aspect-[3/4] w-full min-h-[22rem] overflow-hidden bg-gradient-to-b from-slate-100 to-slate-200 sm:min-h-[26rem] md:min-h-[28rem] ${
+          isVotedFor ? 'mt-10' : ''
+        }`}
+      >
         {candidate.photo_url ? (
           <Image
             src={candidate.photo_url}
-            alt={candidate.name}
+            alt={`Portrait of ${candidate.name}`}
             fill
             priority={rank < 2}
             loading={rank < 2 ? 'eager' : 'lazy'}
-            className="object-contain object-center bg-white transition-transform duration-700 ease-out"
+            className={`object-cover object-[center_20%] transition-transform duration-500 ${
+              !hasVoted ? 'group-hover:scale-[1.02]' : ''
+            } ${isVotedFor ? 'brightness-[1.02]' : ''}`}
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-white/80 shadow-sm">
-              <UserRound className="h-10 w-10 text-slate-400" />
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-100">
+            <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-md">
+              <UserRound className="h-12 w-12 text-slate-400" aria-hidden />
             </div>
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/55 via-slate-950/5 to-transparent" />
-        <div className="absolute bottom-3 left-4">
-          <span className="bg-white/95 text-slate-900 text-xs font-bold px-3 py-1.5 rounded-full shadow-sm">
-            {candidate.position}
-          </span>
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
+        <div className="absolute bottom-4 left-4 right-4">
+          <h3 className="text-xl font-bold leading-tight text-white drop-shadow-md sm:text-2xl">
+            {candidate.name}
+          </h3>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="p-5">
-        <h3 className="text-base sm:text-lg font-bold text-slate-950 mb-1 leading-snug">{candidate.name}</h3>
-
-        <div className="flex flex-wrap gap-2 mb-3">
-          <span className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-200">
-            <Briefcase className="w-3 h-3" />
+      <div className="flex flex-1 flex-col p-5 sm:p-6">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <span className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700">
+            <Briefcase className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
             {candidate.department}
           </span>
-          <span className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-200">
-            <GraduationCap className="w-3 h-3" />
+          <span className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700">
+            <GraduationCap className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
             {candidate.year}
           </span>
         </div>
 
-        <p className="text-slate-600 text-sm leading-relaxed mb-3 line-clamp-2">{candidate.bio}</p>
+        <p className="mb-4 text-base leading-relaxed text-slate-700 line-clamp-3">{candidate.bio}</p>
 
         <button
+          type="button"
           onClick={() => setExpanded(!expanded)}
-          className="flex min-h-9 items-center gap-1 text-cyan-700 text-xs font-semibold mb-4 hover:text-cyan-800 transition-colors"
+          className="mb-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-900 transition-colors hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+          aria-expanded={expanded}
         >
-          <BookOpen className="w-3.5 h-3.5" />
-          {expanded ? 'Hide Manifesto' : 'Read Manifesto'}
-          {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          <BookOpen className="h-4 w-4 shrink-0" aria-hidden />
+          {expanded ? 'Hide manifesto' : 'Read full manifesto'}
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 shrink-0" aria-hidden />
+          ) : (
+            <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />
+          )}
         </button>
 
         {expanded && (
-          <div className="mb-4 p-3 bg-cyan-50 rounded-xl border border-cyan-100 text-sm text-slate-700 leading-relaxed animate-fade-in">
+          <div className="mb-5 rounded-xl border border-cyan-100 bg-cyan-50/80 p-4 text-base leading-relaxed text-slate-800 animate-fade-in">
             {candidate.manifesto}
           </div>
         )}
 
-        {hasVoted ? (
-          isVotedFor ? (
-            <div className="h-12 w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 font-semibold rounded-2xl border border-emerald-200">
-              <CheckCircle2 className="w-4 h-4" />
-              Vote Cast
-            </div>
+        <div className="mt-auto">
+          {hasVoted ? (
+            isVotedFor ? (
+              <div
+                className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-emerald-300 bg-emerald-50 text-base font-bold text-emerald-800"
+                role="status"
+              >
+                <CheckCircle2 className="h-5 w-5" aria-hidden />
+                Vote recorded
+              </div>
+            ) : (
+              <div className="flex min-h-14 w-full items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-base font-medium text-slate-500">
+                You already voted for this position
+              </div>
+            )
           ) : (
-            <div className="h-12 w-full flex items-center justify-center bg-slate-50 text-slate-400 font-medium rounded-2xl border border-slate-100 text-sm">
-              Already Voted
-            </div>
-          )
-        ) : (
-          <button
-            onClick={() => onVote(candidate)}
-            className="h-12 w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-cyan-700 active:bg-cyan-800 text-white font-semibold rounded-2xl transition-all duration-200 shadow-lg shadow-slate-950/15 hover:shadow-cyan-700/20 active:scale-[0.98]"
-          >
-            <Vote className="w-4 h-4" />
-            Cast Vote
-          </button>
-        )}
+            <button
+              type="button"
+              onClick={() => onVote(candidate)}
+              className="flex min-h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-slate-950 px-6 text-base font-bold text-white shadow-lg shadow-slate-900/20 transition-all hover:bg-cyan-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 active:scale-[0.98] active:bg-cyan-800"
+            >
+              <Vote className="h-5 w-5" aria-hidden />
+              Cast vote
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
 

@@ -126,7 +126,7 @@
 
   .candidate-card {
     content-visibility: auto;
-    contain-intrinsic-size: 420px;
+    contain-intrinsic-size: 640px;
   }
 }
 

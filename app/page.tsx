@@ -9,7 +9,48 @@ import { CandidateCard } from '@/components/candidate-card';
 import { VoteConfirmModal } from '@/components/vote-confirm-modal';
 import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { ErrorModal } from '@/components/error-modal';
-import { LogOut, Vote as VoteIcon, BarChart2, User, CheckCircle2, Shield, Sparkles } from 'lucide-react';
+import {
+  LogOut,
+  Vote as VoteIcon,
+  BarChart2,
+  CheckCircle2,
+  Shield,
+  Info,
+  ListChecks,
+} from 'lucide-react';
+
+const POSITION_SORT_ORDER = [
+  'president',
+  'vice president',
+  'secretary',
+  'treasurer',
+  'principle',
+  'principal',
+];
+
+function sortPositionEntries(entries: [string, Candidate[]][]): [string, Candidate[]][] {
+  return [...entries].sort(([a], [b]) => {
+    const aKey = a.toLowerCase();
+    const bKey = b.toLowerCase();
+    const aIndex = POSITION_SORT_ORDER.indexOf(aKey);
+    const bIndex = POSITION_SORT_ORDER.indexOf(bKey);
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+const POSITION_ACCENT: Record<string, string> = {
+  president: 'from-blue-600 to-blue-800',
+  'vice president': 'from-cyan-600 to-cyan-800',
+  secretary: 'from-violet-600 to-violet-800',
+  treasurer: 'from-amber-600 to-amber-800',
+};
+
+function getPositionAccent(position: string): string {
+  return POSITION_ACCENT[position.toLowerCase()] ?? 'from-slate-700 to-slate-900';
+}
 
 export default function HomePage() {
   const { user, loading, signOut, isAdmin, isGuest } = useAuth();
@@ -92,13 +133,19 @@ export default function HomePage() {
     [candidates]
   );
 
+  const sortedBallot = useMemo(
+    () => sortPositionEntries(Object.entries(grouped)),
+    [grouped]
+  );
+
   const handleVoteConfirm = async () => {
     if (!confirmCandidate) return;
-    
+
     if (isGuest) {
       setErrorModal({
         title: 'Login Required',
-        message: 'You\'re viewing as a guest. Please login with your @cmr.ac.in email to cast your vote and save it.',
+        message:
+          "You're viewing as a guest. Please login with your @cmr.ac.in email to cast your vote and save it.",
       });
       setConfirmCandidate(null);
       return;
@@ -114,7 +161,7 @@ export default function HomePage() {
       });
       return;
     }
-    
+
     setVotingLoading(true);
     try {
       const { data, error } = await supabase
@@ -127,19 +174,20 @@ export default function HomePage() {
         })
         .select('id,voter_id,voter_email,candidate_id,position,created_at')
         .single();
-      
+
       if (error) {
         if (error.code === '23505') {
-          // Unique constraint violation - already voted for this position
           setErrorModal({
             title: 'Already Voted for This Position',
-            message: 'You have already cast your vote for this position. Remember, you can only vote once per position. Your vote will remain as cast.',
+            message:
+              'You have already cast your vote for this position. Remember, you can only vote once per position. Your vote will remain as cast.',
           });
         } else {
           console.error('Vote error:', error);
           setErrorModal({
             title: 'Voting Error',
-            message: 'There was an error submitting your vote. Please check your internet connection and try again.',
+            message:
+              'There was an error submitting your vote. Please check your internet connection and try again.',
           });
         }
       } else {
@@ -178,196 +226,288 @@ export default function HomePage() {
 
   const totalPositions = positions.length;
   const votedPositions = myVotes.length;
-  const completionPercent = totalPositions > 0 ? Math.round((votedPositions / totalPositions) * 100) : 0;
+  const completionPercent =
+    totalPositions > 0 ? Math.round((votedPositions / totalPositions) * 100) : 0;
+
+  const currentStep = useMemo(() => {
+    if (totalPositions === 0) return 0;
+    const firstUnvotedIndex = sortedBallot.findIndex(
+      ([position]) => !myVotes.some((v) => v.position === position)
+    );
+    if (firstUnvotedIndex === -1) return totalPositions;
+    return firstUnvotedIndex + 1;
+  }, [sortedBallot, myVotes, totalPositions]);
+
+  const allPositionsComplete = totalPositions > 0 && votedPositions >= totalPositions;
 
   if ((loading && !isGuest) || (!user && !isGuest && !loading)) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-[3px] border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-          <p className="text-slate-500 text-sm">Loading...</p>
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-blue-200 border-t-blue-700" />
+          <p className="text-base font-medium text-slate-600">Loading your ballot…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb] text-slate-950">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-xl border-b border-slate-200/80 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-slate-950 rounded-xl flex items-center justify-center shadow-md shadow-slate-950/15">
-              <VoteIcon className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <span className="font-bold text-slate-900 text-sm sm:text-base">CMR Elections</span>
-              <span className="hidden sm:block text-xs text-slate-400 leading-none">Student Council 2026</span>
+    <div className="min-h-screen bg-[#eef2f7] text-slate-950">
+      <header className="sticky top-0 z-40 border-b border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-md">
+        <div className="mx-auto flex h-[4.25rem] max-w-3xl items-center justify-between gap-3 px-4 sm:max-w-7xl sm:px-6 sm:h-16">
+          <div className="flex min-w-0 items-center gap-3">
+            <Image
+              src="/logo.png"
+              alt="CMR National PU College"
+              width={44}
+              height={44}
+              className="h-11 w-11 shrink-0 rounded-xl object-contain"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-base font-bold text-slate-900 sm:text-lg">CMR Elections</p>
+              <p className="truncate text-xs font-medium text-slate-500 sm:text-sm">
+                Student Council 2026
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             {isAdmin && (
               <button
+                type="button"
                 onClick={() => router.push('/admin')}
                 aria-label="Open admin dashboard"
-                className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl transition-colors"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:min-w-0 sm:px-4"
               >
-                <BarChart2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Dashboard</span>
+                <BarChart2 className="h-5 w-5" aria-hidden />
+                <span className="hidden sm:inline">Admin</span>
               </button>
             )}
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-              {user?.user_metadata?.avatar_url ? (
-                <Image
-                  src={user.user_metadata.avatar_url}
-                  alt="Avatar"
-                  width={24}
-                  height={24}
-                  className="rounded-full"
-                />
-              ) : (
-                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                  <User className="w-3.5 h-3.5 text-blue-600" />
-                </div>
-              )}
-              <span className="text-xs font-medium text-slate-700 hidden sm:inline max-w-[8rem] truncate">
-                {isGuest ? 'Guest User' : user?.email?.replace('@cmr.ac.in', '')}
-              </span>
-            </div>
             {isGuest ? (
               <button
+                type="button"
                 onClick={() => router.push('/login')}
-                aria-label="Login to vote"
-                className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-xl transition-colors"
+                aria-label="Log in to vote"
+                className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white transition-colors hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
-                <LogOut className="w-3.5 h-3.5 rotate-180" />
-                <span className="hidden sm:inline">Login</span>
+                <LogOut className="h-4 w-4 rotate-180" aria-hidden />
+                <span>Log in</span>
               </button>
             ) : (
               <button
+                type="button"
                 onClick={signOut}
                 aria-label="Sign out"
-                className="flex items-center gap-1.5 text-xs font-medium text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-xl transition-colors"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 transition-colors hover:bg-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 sm:min-w-0 sm:gap-2 sm:px-4"
               >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Sign out</span>
+                <LogOut className="h-5 w-5" aria-hidden />
+                <span className="hidden text-sm font-semibold sm:inline">Sign out</span>
               </button>
             )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        {/* Hero banner */}
-        <div className="relative bg-slate-950 rounded-[1.75rem] p-5 sm:p-8 mb-6 overflow-hidden shadow-2xl shadow-slate-950/15 animate-fade-in-up">
-          <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500" />
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-              <span className="text-cyan-200 text-xs font-semibold uppercase tracking-wider">Voting is Live</span>
+      <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:max-w-7xl sm:px-6 sm:pt-8">
+        {/* Progress & instructions */}
+        <section
+          className="mb-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5"
+          aria-label="Voting progress"
+        >
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-5 py-6 sm:px-8 sm:py-7">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+              </span>
+              <span className="text-xs font-bold uppercase tracking-widest text-emerald-300">
+                Official ballot · CMR National PU College
+              </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1 tracking-tight">Student Council Elections</h1>
-            <p className="text-slate-300 text-sm sm:text-base mb-5">Cast your votes for CMR&apos;s next student leaders</p>
+            <h1 className="text-2xl font-bold leading-tight text-white sm:text-3xl">
+              Student Council Elections
+            </h1>
+            {!isGuest && totalPositions > 0 && (
+              <p className="mt-3 text-lg font-semibold text-cyan-100 sm:text-xl">
+                {allPositionsComplete ? (
+                  <>All {totalPositions} positions completed</>
+                ) : (
+                  <>
+                    Step {currentStep} of {totalPositions} positions
+                  </>
+                )}
+              </p>
+            )}
+            <p className="mt-2 text-base leading-relaxed text-slate-300">
+              Select one candidate for each position
+            </p>
 
-            <div className="bg-white/[0.08] border border-white/10 rounded-2xl p-4 inline-flex w-full sm:w-auto items-center gap-4 backdrop-blur">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-white">{isGuest ? '—' : `${votedPositions}/${totalPositions}`}</p>
-                <p className="text-slate-300 text-xs">{isGuest ? 'Guest Preview' : 'Positions Voted'}</p>
+            {!isGuest && totalPositions > 0 && (
+              <div className="mt-6">
+                <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-300">
+                  <span>Your progress</span>
+                  <span className="text-white">
+                    {votedPositions} of {totalPositions} voted
+                  </span>
+                </div>
+                <div
+                  className="h-3 overflow-hidden rounded-full bg-white/15"
+                  role="progressbar"
+                  aria-valuenow={completionPercent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Ballot completion"
+                >
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-700"
+                    style={{ width: `${completionPercent}%` }}
+                  />
+                </div>
               </div>
-              {!isGuest && (
-                <>
-                  <div className="h-10 w-px bg-white/20" />
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-2 h-2 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-300 transition-all duration-700 ease-out"
-                        style={{ width: `${completionPercent}%` }}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {positions.map((pos) => {
-                        const voted = myVotes.some((v) => v.position === pos);
-                        return (
-                          <div key={pos} className="flex items-center gap-2 text-xs">
-                            <CheckCircle2 className={`w-3.5 h-3.5 ${voted ? 'text-emerald-400' : 'text-white/30'}`} />
-                            <span className={voted ? 'text-white' : 'text-slate-400'}>{pos}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </>
-              )}
+            )}
+          </div>
+
+          <div className="grid gap-0 sm:grid-cols-2">
+            <div className="flex gap-4 border-b border-slate-100 p-5 sm:border-b-0 sm:border-r sm:p-6">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50">
+                <Info className="h-6 w-6 text-blue-700" aria-hidden />
+              </div>
+              <div>
+                <p className="text-base font-bold text-slate-900">Before you vote</p>
+                <p className="mt-1 text-base leading-relaxed text-slate-700">
+                  Read each candidate&apos;s details and manifesto carefully before casting your
+                  vote.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-4 p-5 sm:p-6">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-50">
+                <ListChecks className="h-6 w-6 text-amber-700" aria-hidden />
+              </div>
+              <div>
+                <p className="text-base font-bold text-slate-900">One vote per position</p>
+                <p className="mt-1 text-base leading-relaxed text-slate-700">
+                  You can vote only once per position. Your choice cannot be changed after you
+                  confirm.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-
-        <div className="mb-5 flex items-center gap-2 rounded-2xl border border-cyan-100 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm animate-fade-in-up animation-delay-100">
-          <Sparkles className="h-4 w-4 flex-shrink-0 text-cyan-600" />
-          <span className="min-w-0">Fast mobile ballot, secure single-vote positions, and live progress on this device.</span>
-        </div>
+        </section>
 
         {dataLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-pulse">
-                <div className="h-52 bg-slate-100" />
-                <div className="p-5 space-y-3">
-                  <div className="h-5 bg-slate-100 rounded-lg w-3/4" />
-                  <div className="h-4 bg-slate-100 rounded-lg w-1/2" />
-                  <div className="h-10 bg-slate-100 rounded-2xl" />
+          <div className="space-y-12">
+            {[...Array(2)].map((_, sectionIndex) => (
+              <div
+                key={sectionIndex}
+                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+              >
+                <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-slate-100" />
+                <div className="grid grid-cols-1 gap-8">
+                  {[...Array(2)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="overflow-hidden rounded-2xl border border-slate-100 animate-pulse"
+                    >
+                      <div className="aspect-[3/4] bg-slate-100" />
+                      <div className="space-y-3 p-5">
+                        <div className="h-6 w-3/4 rounded-lg bg-slate-100" />
+                        <div className="h-14 rounded-2xl bg-slate-100" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
           </div>
         ) : candidates.length === 0 ? (
-          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-8 text-center shadow-sm animate-fade-in-up">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
-              <VoteIcon className="h-7 w-7 text-slate-500" />
+          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
+              <VoteIcon className="h-8 w-8 text-slate-500" aria-hidden />
             </div>
-            <h2 className="text-lg font-bold text-slate-950">Ballot is not ready yet</h2>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500">
-              No candidates are available to preview. Ask an admin to add candidates, or apply the latest Supabase migration if candidates already exist.
+            <h2 className="text-xl font-bold text-slate-950">Ballot is not ready yet</h2>
+            <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-slate-600">
+              No candidates are available right now. Please check back later or contact the election
+              committee.
             </p>
           </div>
         ) : (
-          Object.entries(grouped).map(([position, positionCandidates]) => {
-            const positionVote = myVotes.find((v) => v.position === position);
-            return (
-              <section key={position} className="mb-6 md:mb-10 animate-fade-in-up">
-                <div className="flex items-center gap-3 mb-5">
-                  <div className="w-1 h-8 bg-cyan-600 rounded-full" />
-                  <h2 className="text-xl font-bold text-slate-900">{position}</h2>
-                  {positionVote && (
-                    <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Voted
-                    </span>
+          <div className="space-y-0">
+            {sortedBallot.map(([position, positionCandidates], sectionIndex) => {
+              const positionVote = myVotes.find((v) => v.position === position);
+              const isComplete = !!positionVote;
+              const accent = getPositionAccent(position);
+
+              return (
+                <section
+                  key={position}
+                  id={`position-${sectionIndex}`}
+                  aria-labelledby={`heading-${sectionIndex}`}
+                  className="mb-28 scroll-mt-24 last:mb-12 sm:mb-32"
+                >
+                  <div className="overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+                    <header className={`bg-gradient-to-r ${accent} px-5 py-8 sm:px-8 sm:py-10`}>
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/80">
+                            Position {sectionIndex + 1} of {sortedBallot.length}
+                          </p>
+                          <h2
+                            id={`heading-${sectionIndex}`}
+                            className="mt-2 text-2xl font-black uppercase tracking-wide text-white sm:text-4xl"
+                          >
+                            {position}
+                          </h2>
+                          <p className="mt-3 text-base font-medium text-white/90 sm:text-lg">
+                            Select one candidate for this position.
+                          </p>
+                        </div>
+                        {isComplete && (
+                          <span className="inline-flex min-h-11 items-center gap-2 rounded-full border-2 border-white/40 bg-white/15 px-4 py-2 text-sm font-bold text-white backdrop-blur">
+                            <CheckCircle2 className="h-5 w-5" aria-hidden />
+                            Vote recorded
+                          </span>
+                        )}
+                      </div>
+                    </header>
+
+                    <div className="border-t border-slate-100 bg-slate-50/50 p-5 sm:p-8">
+                      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 xl:grid-cols-3">
+                        {positionCandidates.map((candidate, index) => (
+                          <CandidateCard
+                            key={candidate.id}
+                            candidate={candidate}
+                            hasVoted={!!positionVote}
+                            isVotedFor={positionVote?.candidate_id === candidate.id}
+                            position={position}
+                            onVote={setConfirmCandidate}
+                            rank={index}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {sectionIndex < sortedBallot.length - 1 && (
+                    <div className="mx-auto mt-14 flex max-w-xs items-center gap-4 sm:mt-16" aria-hidden>
+                      <div className="h-px flex-1 bg-slate-300" />
+                      <VoteIcon className="h-5 w-5 text-slate-400" />
+                      <div className="h-px flex-1 bg-slate-300" />
+                    </div>
                   )}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {positionCandidates.map((candidate, index) => (
-                    <CandidateCard
-                      key={candidate.id}
-                      candidate={candidate}
-                      hasVoted={!!positionVote}
-                      isVotedFor={positionVote?.candidate_id === candidate.id}
-                      position={position}
-                      onVote={setConfirmCandidate}
-                      rank={index}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })
+                </section>
+              );
+            })}
+          </div>
         )}
 
-        <div className="mt-8 flex items-center justify-center gap-2 text-slate-400 text-xs">
-          <Shield className="w-3.5 h-3.5" />
-          <span>All votes are securely recorded. Each student can vote once per position.</span>
-        </div>
+        <footer className="mt-12 flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-5 text-center shadow-sm">
+          <Shield className="h-5 w-5 text-slate-500" aria-hidden />
+          <p className="max-w-lg text-base leading-relaxed text-slate-600">
+            All votes are securely recorded. Each student may vote once per position only.
+          </p>
+          <p className="text-sm font-semibold text-slate-500">CMR National PU College · 2026</p>
+        </footer>
       </main>
 
       {confirmCandidate && (
