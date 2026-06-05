@@ -137,7 +137,7 @@ export default function ResultsPage() {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500 mb-1">Total Votes</p>
@@ -149,7 +149,7 @@ export default function ResultsPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500 mb-1">Unique Voters</p>
@@ -161,7 +161,7 @@ export default function ResultsPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500 mb-1">Positions</p>
@@ -182,7 +182,7 @@ export default function ResultsPage() {
             </div>
           </div>
         ) : candidates.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+          <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-12 text-center">
             <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
             <p className="text-slate-500 text-lg font-medium mb-4">No candidates added yet</p>
             <p className="text-slate-400">Add candidates first in the Manage Candidates section</p>
@@ -190,7 +190,7 @@ export default function ResultsPage() {
         ) : (
           <>
             {/* Position Selector */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
               <h3 className="font-semibold text-slate-900 mb-4">Select Position</h3>
               <div className="flex flex-wrap gap-2">
                 {positions.map((pos) => (
@@ -210,7 +210,7 @@ export default function ResultsPage() {
             </div>
 
             {/* Results Chart */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
               <h3 className="text-xl font-bold text-slate-900 mb-6">
                 {currentPosition} - Results ({totalPositionVotes} votes)
               </h3>
@@ -295,7 +295,7 @@ export default function ResultsPage() {
             )}
 
             {/* Position Summary Table */}
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-white rounded-2xl mb-24 border border-slate-200 overflow-hidden shadow-sm">
               <div className="px-6 py-4 border-b border-slate-200">
                 <h3 className="text-lg font-bold text-slate-900">All Positions Summary</h3>
               </div>

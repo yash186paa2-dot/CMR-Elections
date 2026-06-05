@@ -323,7 +323,7 @@ export default function CandidatesManagementPage() {
             </div>
           </div>
         ) : candidates.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+          <div className="bg-white rounded-2xl mb-24border border-slate-200 p-12 text-center">
             <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
             <p className="text-slate-500 text-lg font-medium mb-4">No candidates yet</p>
             <button
@@ -398,7 +398,7 @@ export default function CandidatesManagementPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl mb-24 shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
               <h2 className="text-xl font-bold text-slate-900">
                 {editingId ? 'Edit Candidate' : 'Add New Candidate'}

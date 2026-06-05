@@ -66,7 +66,7 @@ export default function AdminDashboard() {
     };
 
     fetchStats();
-    const interval = setInterval(fetchStats, 5000); // Refresh every 5 seconds
+    const interval = setInterval(fetchStats, 30000); // Refresh every 5 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -106,7 +106,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Top Candidates */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
+        <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-8 shadow-sm">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-slate-900">Leading Candidates</h2>
@@ -208,7 +208,7 @@ function StatCard({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
       <div className={`inline-flex p-3 rounded-xl ${colors[color]} mb-4 text-white`}>
         <div className={`text-${color}-600`}>{icon}</div>
       </div>

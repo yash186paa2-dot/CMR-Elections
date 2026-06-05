@@ -443,7 +443,7 @@ export default function HomePage() {
                   key={position}
                   id={`position-${sectionIndex}`}
                   aria-labelledby={`heading-${sectionIndex}`}
-                  className="mb-28 scroll-mt-24 last:mb-12 sm:mb-32"
+                 className="mb-40 scroll-mt-24 last:mb-20 sm:mb-48"
                 >
                   <div className="overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
                     <header className={`bg-gradient-to-r ${accent} px-5 py-8 sm:px-8 sm:py-10`}>
@@ -489,7 +489,7 @@ export default function HomePage() {
                   </div>
 
                   {sectionIndex < sortedBallot.length - 1 && (
-                    <div className="mx-auto mt-14 flex max-w-xs items-center gap-4 sm:mt-16" aria-hidden>
+                    <div className="mx-auto mt-14 flex max-w-xs items-center gap-4 sm:mt-32" aria-hidden>
                       <div className="h-px flex-1 bg-slate-300" />
                       <VoteIcon className="h-5 w-5 text-slate-400" />
                       <div className="h-px flex-1 bg-slate-300" />
