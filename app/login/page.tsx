@@ -274,7 +274,7 @@ export default function LoginPage() {
                           setFieldErrors((current) => ({ ...current, roll_no: undefined }));
                         }
                       }}
-                      placeholder="e.g. CMR2024001"
+                      placeholder="e.g. 1B19"
                       required
                       autoComplete="off"
                       aria-invalid={!!fieldErrors.roll_no}
