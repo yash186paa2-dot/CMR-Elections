@@ -37,8 +37,7 @@ export function VoteSuccessModal({ candidate, onDismiss }: Props) {
         <p className="mx-auto mt-3 max-w-sm text-base leading-relaxed text-slate-600">
           Your vote for{' '}
           <span className="font-bold text-slate-900">{candidate.name}</span> as{' '}
-          <span className="font-bold text-slate-900">{candidate.position}</span> in{' '}
-          <span className="font-bold text-slate-900">{candidate.house}</span> has been saved.
+          <span className="font-bold text-slate-900">{candidate.position}</span> has been saved.
         </p>
 
         {candidate.photo_url && (
@@ -55,8 +54,7 @@ export function VoteSuccessModal({ candidate, onDismiss }: Props) {
 
         <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
           <p className="text-base leading-relaxed text-slate-700">
-            Your house and ballot are now locked. You cannot switch houses or cast another vote in
-            this election.
+            You can continue voting in any remaining positions that you have not submitted yet.
           </p>
         </div>
 

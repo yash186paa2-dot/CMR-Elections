@@ -31,7 +31,10 @@ export default function AuthCallbackPage() {
       }
 
       const email = data.user.email ?? '';
-      if (!email.endsWith('@cmr.ac.in')) {
+      const isCollegeEmail = email.endsWith('@cmr.ac.in');
+      const isRollStudent = data.user.user_metadata?.login_type === 'roll_student';
+
+      if (!isCollegeEmail && !isRollStudent) {
         await supabase.auth.signOut();
         router.replace('/login?error=invalid_domain');
         return;

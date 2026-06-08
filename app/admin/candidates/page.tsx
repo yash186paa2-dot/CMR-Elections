@@ -4,17 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AdminLayout } from '@/components/admin-layout';
 import { supabase, type Candidate } from '@/lib/supabase';
-import { CANDIDATE_HOUSE_OPTIONS, type CandidateHouse } from '@/lib/houses';
-import { fetchCandidatesWithHouseSupport } from '@/lib/candidates';
-import {
-  Plus,
-  Edit2,
-  Trash2,
-  AlertCircle,
-  CheckCircle2,
-  X,
-  Upload,
-} from 'lucide-react';
+import { CANDIDATE_SELECT, fetchCandidates } from '@/lib/candidates';
+import { Plus, Edit2, Trash2, AlertCircle, CheckCircle2, X, Upload } from 'lucide-react';
 
 export default function CandidatesManagementPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -24,11 +15,10 @@ export default function CandidatesManagementPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
-  
+
   const [form, setForm] = useState({
     name: '',
     position: '',
-    house: CANDIDATE_HOUSE_OPTIONS[0].value as CandidateHouse,
     department: '',
     year: '',
     bio: '',
@@ -36,13 +26,17 @@ export default function CandidatesManagementPage() {
     manifesto: '',
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [previewUrl, setPreviewUrl] = useState('');
+
+  const sortedCandidates = useMemo(
+    () => [...candidates].sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name)),
+    [candidates]
+  );
 
   const resetForm = () => {
     setForm({
       name: '',
       position: '',
-      house: CANDIDATE_HOUSE_OPTIONS[0].value as CandidateHouse,
       department: '',
       year: '',
       bio: '',
@@ -55,12 +49,12 @@ export default function CandidatesManagementPage() {
   };
 
   useEffect(() => {
-    fetchCandidates();
+    void loadCandidates();
   }, []);
 
-  const fetchCandidates = async () => {
+  const loadCandidates = async () => {
     setLoading(true);
-    const { data, error } = await fetchCandidatesWithHouseSupport();
+    const { data, error } = await fetchCandidates();
     if (error) {
       setMessage({
         type: 'error',
@@ -77,7 +71,6 @@ export default function CandidatesManagementPage() {
       setForm({
         name: candidate.name,
         position: candidate.position,
-        house: candidate.house,
         department: candidate.department,
         year: candidate.year,
         bio: candidate.bio,
@@ -97,20 +90,17 @@ export default function CandidatesManagementPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
       setMessage({ type: 'error', text: 'Please select an image file' });
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       setMessage({ type: 'error', text: 'Image size must be less than 5MB' });
       return;
     }
 
     setSelectedFile(file);
-    // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setPreviewUrl(reader.result as string);
@@ -129,14 +119,11 @@ export default function CandidatesManagementPage() {
         .replace(/(^-|-$)/g, '')
         .slice(0, 48);
       const fileName = `${Date.now()}-${crypto.randomUUID()}-${safeName || 'candidate'}.${extension}`;
-      
-      // Check if bucket exists and upload
-      const { data, error } = await supabase.storage
-        .from('candidate-photos')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
+
+      const { error } = await supabase.storage.from('candidate-photos').upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false,
+      });
 
       if (error) {
         console.error('Storage upload error:', error);
@@ -147,15 +134,8 @@ export default function CandidatesManagementPage() {
         );
       }
 
-      // Get public URL
-      const { data: publicData } = supabase.storage
-        .from('candidate-photos')
-        .getPublicUrl(fileName);
-
+      const { data: publicData } = supabase.storage.from('candidate-photos').getPublicUrl(fileName);
       return publicData?.publicUrl || '';
-    } catch (err) {
-      console.error('Upload error:', err);
-      throw err;
     } finally {
       setUploadingImage(false);
     }
@@ -164,7 +144,7 @@ export default function CandidatesManagementPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    setMessage(null); // Clear previous messages
+    setMessage(null);
 
     if (!form.name || !form.position) {
       setMessage({ type: 'error', text: 'Name and position are required' });
@@ -176,12 +156,10 @@ export default function CandidatesManagementPage() {
       let photoUrl = form.photo_url;
       let uploadWarning = '';
 
-      // Upload image if a new file was selected
       if (selectedFile) {
         try {
           photoUrl = await uploadImage(selectedFile);
         } catch (uploadErr) {
-          // Show warning but allow continuing without image
           console.warn('Image upload skipped:', uploadErr);
           uploadWarning = uploadErr instanceof Error ? uploadErr.message : 'Image upload failed.';
           photoUrl = form.photo_url || '';
@@ -191,7 +169,6 @@ export default function CandidatesManagementPage() {
       const dataToSubmit = {
         name: form.name.trim(),
         position: form.position.trim(),
-        house: form.house,
         department: form.department.trim(),
         year: form.year.trim(),
         bio: form.bio.trim(),
@@ -200,51 +177,35 @@ export default function CandidatesManagementPage() {
       };
 
       if (editingId) {
-        // Update
         const { data, error } = await supabase
           .from('candidates')
           .update(dataToSubmit)
           .eq('id', editingId)
-          .select('id,name,position,house,department,year,bio,photo_url,manifesto,vote_count,created_at')
+          .select(CANDIDATE_SELECT)
           .single();
-        
-        if (error) {
-          console.error('Update error:', error);
-          throw new Error(`Failed to update: ${error.message}`);
-        }
+
+        if (error) throw new Error(`Failed to update: ${error.message}`);
+
         setCandidates((current) =>
           current
             .map((candidate) => (candidate.id === editingId ? data : candidate))
-            .sort(
-              (a, b) =>
-                a.house.localeCompare(b.house) ||
-                a.position.localeCompare(b.position) ||
-                a.name.localeCompare(b.name)
-            )
+            .sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name))
         );
         setMessage({
           type: uploadWarning ? 'error' : 'success',
           text: uploadWarning || 'Candidate updated successfully',
         });
       } else {
-        // Insert
         const { data, error } = await supabase
           .from('candidates')
           .insert([dataToSubmit])
-          .select('id,name,position,house,department,year,bio,photo_url,manifesto,vote_count,created_at')
+          .select(CANDIDATE_SELECT)
           .single();
-        
-        if (error) {
-          console.error('Insert error:', error);
-          throw new Error(`Failed to add candidate: ${error.message}`);
-        }
+
+        if (error) throw new Error(`Failed to add candidate: ${error.message}`);
+
         setCandidates((current) =>
-          [...current, data].sort(
-            (a, b) =>
-              a.house.localeCompare(b.house) ||
-              a.position.localeCompare(b.position) ||
-              a.name.localeCompare(b.name)
-          )
+          [...current, data].sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name))
         );
         setMessage({
           type: uploadWarning ? 'error' : 'success',
@@ -255,11 +216,9 @@ export default function CandidatesManagementPage() {
       setShowModal(false);
       resetForm();
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred. Please check the browser console.';
-      console.error('Full error:', err);
       setMessage({
         type: 'error',
-        text: errorMessage,
+        text: err instanceof Error ? err.message : 'An error occurred. Please check the browser console.',
       });
     } finally {
       setSubmitting(false);
@@ -282,229 +241,166 @@ export default function CandidatesManagementPage() {
     }
   };
 
-  const houseGroups = useMemo(
-    () =>
-      CANDIDATE_HOUSE_OPTIONS.map((house) => ({
-        house: house.value,
-        candidates: candidates.filter((candidate) => candidate.house === house.value),
-      })).filter((group) => group.candidates.length > 0),
-    [candidates]
-  );
-
   return (
     <AdminLayout activePage="candidates">
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Manage Candidates</h1>
-            <p className="text-slate-500 mt-1">Add, edit, or remove candidates</p>
+            <p className="mt-1 text-slate-500">Add, edit, or remove candidates from the live ballot</p>
           </div>
           <button
             onClick={() => handleOpen()}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-colors shadow-md hover:shadow-lg"
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white shadow-md transition-colors hover:bg-blue-700 hover:shadow-lg"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="h-5 w-5" />
             Add Candidate
           </button>
         </div>
 
-        {/* Message */}
         {message && (
           <div
-            className={`flex items-center gap-3 p-4 rounded-xl border ${
+            className={`flex items-center gap-3 rounded-xl border p-4 ${
               message.type === 'success'
-                ? 'bg-green-50 border-green-200 text-green-700'
-                : 'bg-red-50 border-red-200 text-red-700'
+                ? 'border-green-200 bg-green-50 text-green-700'
+                : 'border-red-200 bg-red-50 text-red-700'
             }`}
           >
             {message.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+              <CheckCircle2 className="h-5 w-5 flex-shrink-0" />
             ) : (
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <AlertCircle className="h-5 w-5 flex-shrink-0" />
             )}
             <p className="text-sm font-medium">{message.text}</p>
-            <button
-              onClick={() => setMessage(null)}
-              className="ml-auto"
-            >
-              <X className="w-4 h-4" />
+            <button onClick={() => setMessage(null)} className="ml-auto">
+              <X className="h-4 w-4" />
             </button>
           </div>
         )}
 
-        {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-[3px] border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+              <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-blue-200 border-t-blue-600" />
               <p className="text-sm text-slate-500">Loading candidates...</p>
             </div>
           </div>
-        ) : candidates.length === 0 ? (
-          <div className="bg-white rounded-2xl mb-24border border-slate-200 p-12 text-center">
-            <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-500 text-lg font-medium mb-4">No candidates yet</p>
+        ) : sortedCandidates.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+            <AlertCircle className="mx-auto mb-4 h-12 w-12 text-slate-300" />
+            <p className="mb-4 text-lg font-medium text-slate-500">No candidates yet</p>
             <button
               onClick={() => handleOpen()}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-xl transition-colors"
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="h-4 w-4" />
               Add Your First Candidate
             </button>
           </div>
         ) : (
-          <div className="space-y-6">
-            {houseGroups.map(({ house, candidates: houseCandidates }) => {
-              return (
-                <div key={house}>
-                  <h2 className="text-lg font-bold text-slate-900 mb-3 flex items-center gap-2">
-                    <div className="w-1 h-6 bg-blue-600 rounded-full" />
-                    {house}
-                  </h2>
-                  <div className="space-y-3">
-                    {houseCandidates.map((candidate) => (
-                      <div
-                        key={candidate.id}
-                        className="bg-white rounded-xl border border-slate-200 p-4 hover:border-slate-300 transition-colors flex items-center justify-between"
-                      >
-                        <div>
-                          <p className="font-semibold text-slate-900">{candidate.name}</p>
-                          <p className="text-sm text-slate-500">
-                            {candidate.position}
-                            {(candidate.department || candidate.year) && ' · '}
-                            {candidate.department && `${candidate.department} `}
-                            {candidate.year && `| Year ${candidate.year}`}
-                          </p>
-                          {candidate.bio && (
-                            <p className="text-xs text-slate-600 mt-1 line-clamp-1">
-                              {candidate.bio}
-                            </p>
-                          )}
-                          <div className="mt-2 flex items-center gap-2">
-                            <span className="text-xs font-medium text-white bg-green-600 px-2 py-1 rounded-full">
-                              {candidate.vote_count} votes
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <button
-                            onClick={() => handleOpen(candidate)}
-                            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                            <span className="hidden sm:inline">Edit</span>
-                          </button>
-                          <button
-                            onClick={() => handleDelete(candidate.id)}
-                            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            <span className="hidden sm:inline">Delete</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+          <div className="space-y-3">
+            {sortedCandidates.map((candidate) => (
+              <div
+                key={candidate.id}
+                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300"
+              >
+                <div>
+                  <p className="font-semibold text-slate-900">{candidate.name}</p>
+                  <p className="text-sm text-slate-500">
+                    {candidate.position}
+                    {(candidate.department || candidate.year) && ' · '}
+                    {candidate.department && `${candidate.department} `}
+                    {candidate.year && `| Year ${candidate.year}`}
+                  </p>
+                  {candidate.bio && <p className="mt-1 line-clamp-1 text-xs text-slate-600">{candidate.bio}</p>}
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="rounded-full bg-green-600 px-2 py-1 text-xs font-medium text-white">
+                      {candidate.vote_count} votes
+                    </span>
                   </div>
                 </div>
-              );
-            })}
+                <div className="flex flex-shrink-0 items-center gap-2">
+                  <button
+                    onClick={() => handleOpen(candidate)}
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Edit</span>
+                  </button>
+                  <button
+                    onClick={() => handleDelete(candidate.id)}
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl mb-24 shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
               <h2 className="text-xl font-bold text-slate-900">
                 {editingId ? 'Edit Candidate' : 'Add New Candidate'}
               </h2>
-              <button
-                onClick={() => setShowModal(false)}
-                className="text-slate-500 hover:text-slate-700"
-              >
-                <X className="w-6 h-6" />
+              <button onClick={() => setShowModal(false)} className="text-slate-500 hover:text-slate-700">
+                <X className="h-6 w-6" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="space-y-4 p-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Name *
-                  </label>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Name *</label>
                   <input
                     type="text"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Position *
-                  </label>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Position *</label>
                   <input
                     type="text"
                     value={form.position}
                     onChange={(e) => setForm({ ...form, position: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., President, Vice President"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    House *
-                  </label>
-                  <select
-                    value={form.house}
-                    onChange={(e) => setForm({ ...form, house: e.target.value as CandidateHouse })}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  >
-                    {CANDIDATE_HOUSE_OPTIONS.map((house) => (
-                      <option key={house.value} value={house.value}>
-                        {house.value}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Department
-                  </label>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Department</label>
                   <input
                     type="text"
                     value={form.department}
                     onChange={(e) => setForm({ ...form, department: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., PCMC"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Year
-                  </label>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Year</label>
                   <input
                     type="text"
                     value={form.year}
                     onChange={(e) => setForm({ ...form, year: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., 2nd Year"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Candidate Photo
-                </label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Candidate Photo</label>
                 <div className="space-y-3">
-                  {/* File Input */}
                   <div className="relative">
                     <input
                       type="file"
@@ -515,10 +411,10 @@ export default function CandidatesManagementPage() {
                     />
                     <label
                       htmlFor="photo-upload"
-                      className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                      className="flex w-full cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-3 transition-colors hover:border-blue-400 hover:bg-blue-50"
                     >
                       <div className="text-center">
-                        <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                        <Upload className="mx-auto mb-1 h-5 w-5 text-slate-400" />
                         <p className="text-sm font-medium text-slate-700">
                           {selectedFile ? selectedFile.name : 'Click to upload image'}
                         </p>
@@ -527,24 +423,18 @@ export default function CandidatesManagementPage() {
                     </label>
                   </div>
 
-                  {/* Preview */}
                   {previewUrl && (
-                    <div className="relative w-full h-40 bg-slate-100 rounded-lg overflow-hidden">
-                      <Image
-                        src={previewUrl}
-                        alt="Preview"
-                        fill
-                        className="object-cover"
-                      />
+                    <div className="relative h-40 w-full overflow-hidden rounded-lg bg-slate-100">
+                      <Image src={previewUrl} alt="Preview" fill className="object-cover" />
                       <button
                         type="button"
                         onClick={() => {
                           setPreviewUrl('');
                           setSelectedFile(null);
                         }}
-                        className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                        className="absolute right-2 top-2 rounded-full bg-red-500 p-1 text-white hover:bg-red-600"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="h-4 w-4" />
                       </button>
                     </div>
                   )}
@@ -552,36 +442,32 @@ export default function CandidatesManagementPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Bio
-                </label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Bio</label>
                 <textarea
                   value={form.bio}
                   onChange={(e) => setForm({ ...form, bio: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full resize-none rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                   placeholder="Brief biography of the candidate"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Manifesto
-                </label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Manifesto</label>
                 <textarea
                   value={form.manifesto}
                   onChange={(e) => setForm({ ...form, manifesto: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full resize-none rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={4}
                   placeholder="Campaign manifesto and platform"
                 />
               </div>
 
-              <div className="flex gap-3 justify-end pt-4 border-t">
+              <div className="flex justify-end gap-3 border-t pt-4">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-6 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium transition-colors"
+                  className="rounded-lg border border-slate-300 px-6 py-2 font-medium text-slate-700 transition-colors hover:bg-slate-50"
                   disabled={submitting || uploadingImage}
                 >
                   Cancel
@@ -589,11 +475,11 @@ export default function CandidatesManagementPage() {
                 <button
                   type="submit"
                   disabled={submitting || uploadingImage}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-lg bg-blue-600 px-6 py-2 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {submitting || uploadingImage ? (
                     <span className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                       {uploadingImage ? 'Uploading...' : 'Saving...'}
                     </span>
                   ) : (

@@ -1,19 +1,26 @@
 /*
-  Roll-number student registry for voters without @cmr.ac.in email.
+  Roll-number student registry.
 
-  - Credentials are verified only via server-side API (service role).
-  - No RLS policies: direct client access is denied by default.
+  Actual students table columns:
+  - id
+  - roll_no
+  - name
+  - dob
+  - class
+  - has_voted
+  - created_at
+  - auth_user_id
 */
 
 CREATE TABLE IF NOT EXISTS students (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   roll_no text NOT NULL,
+  name text NOT NULL DEFAULT '',
   dob date NOT NULL,
-  full_name text NOT NULL DEFAULT '',
-  department text NOT NULL DEFAULT '',
-  auth_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  class text NOT NULL DEFAULT '',
+  has_voted boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
+  auth_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   CONSTRAINT students_roll_no_unique UNIQUE (roll_no)
 );
 
@@ -28,7 +35,6 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   NEW.roll_no := upper(trim(NEW.roll_no));
-  NEW.updated_at := now();
   RETURN NEW;
 END;
 $$;

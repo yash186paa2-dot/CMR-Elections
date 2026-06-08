@@ -12,7 +12,6 @@ import {
   UserRound,
 } from 'lucide-react';
 import type { Candidate } from '@/lib/supabase';
-import { HOUSE_OPTIONS_BY_VALUE } from '@/lib/houses';
 
 type Props = {
   candidate: Candidate;
@@ -24,13 +23,12 @@ type Props = {
 
 function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, rank = 0 }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const houseTheme = HOUSE_OPTIONS_BY_VALUE[candidate.house ?? 'None'];
 
   return (
     <article
       className={`candidate-card relative flex flex-col overflow-hidden rounded-xl border-2 bg-white transition-all duration-300 ease-out ${
         isVotedFor
-          ? `scale-[1.02] border-transparent bg-gradient-to-br ${houseTheme.surface} shadow-lg ring-2 ${houseTheme.ring}`
+          ? 'scale-[1.02] border-emerald-300 bg-emerald-50 shadow-lg ring-2 ring-emerald-200'
           : hasVoted
             ? 'border-slate-200 opacity-60'
             : 'border-slate-200 hover:border-slate-300 cursor-pointer'
@@ -83,11 +81,6 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
 
       <div className="flex flex-1 flex-col p-3">
         <div className="mb-2 flex flex-wrap gap-1.5">
-          <span
-            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${houseTheme.badge}`}
-          >
-            {candidate.house}
-          </span>
           <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
             {candidate.position}
           </span>

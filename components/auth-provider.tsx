@@ -24,7 +24,7 @@ type AuthContextType = {
     dob: string
   ) => Promise<{
     error: AuthError | null;
-    student?: { id: string; roll_no: string; full_name: string };
+    student?: { id: string; roll_no: string; name: string };
   }>;
   signInAsGuest: () => void;
   signInAsAdminGuest: () => void;
@@ -143,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       fieldErrors?: RollLoginFieldErrors;
       email?: string;
       token_hash?: string;
-      student?: { id: string; roll_no: string; full_name: string };
+      student?: { id: string; roll_no: string; name: string };
     };
 
     if (!response.ok) {

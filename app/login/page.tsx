@@ -85,8 +85,8 @@ export default function LoginPage() {
 
     setMessage({
       type: 'success',
-      text: student?.full_name
-        ? `Welcome, ${student.full_name}. Redirecting…`
+      text: student?.name
+        ? `Welcome, ${student.name}. Redirecting…`
         : 'Login successful. Redirecting…',
     });
     router.replace('/');

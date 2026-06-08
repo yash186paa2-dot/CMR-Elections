@@ -12,7 +12,9 @@ type StudentRow = {
   id: string;
   roll_no: string;
   dob: string;
-  full_name: string;
+  name: string;
+  class: string;
+  has_voted: boolean;
   auth_user_id: string | null;
 };
 
@@ -29,7 +31,8 @@ async function ensureAuthUserForStudent(
     login_type: 'roll_student',
     roll_no: student.roll_no,
     student_id: student.id,
-    full_name: student.full_name,
+    name: student.name,
+    class: student.class,
   };
 
   const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -117,7 +120,7 @@ export async function POST(request: Request) {
 
     const { data: student, error: studentError } = await admin
       .from('students')
-      .select('id, roll_no, dob, full_name, auth_user_id')
+      .select('id, roll_no, dob, name, class, has_voted, auth_user_id')
       .eq('roll_no', normalizedRoll)
       .maybeSingle();
 
@@ -158,7 +161,7 @@ export async function POST(request: Request) {
       student: {
         id: student.id,
         roll_no: student.roll_no,
-        full_name: student.full_name,
+        name: student.name,
       },
     });
   } catch (error) {
