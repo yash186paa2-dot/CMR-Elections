@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AdminLayout } from '@/components/admin-layout';
 import { supabase, type Candidate } from '@/lib/supabase';
+import { CANDIDATE_HOUSE_OPTIONS, type CandidateHouse } from '@/lib/houses';
+import { fetchCandidatesWithHouseSupport } from '@/lib/candidates';
 import {
   Plus,
   Edit2,
@@ -26,6 +28,7 @@ export default function CandidatesManagementPage() {
   const [form, setForm] = useState({
     name: '',
     position: '',
+    house: CANDIDATE_HOUSE_OPTIONS[0].value as CandidateHouse,
     department: '',
     year: '',
     bio: '',
@@ -39,6 +42,7 @@ export default function CandidatesManagementPage() {
     setForm({
       name: '',
       position: '',
+      house: CANDIDATE_HOUSE_OPTIONS[0].value as CandidateHouse,
       department: '',
       year: '',
       bio: '',
@@ -56,11 +60,7 @@ export default function CandidatesManagementPage() {
 
   const fetchCandidates = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('candidates')
-      .select('id,name,position,department,year,bio,photo_url,manifesto,vote_count,created_at')
-      .order('position')
-      .order('name');
+    const { data, error } = await fetchCandidatesWithHouseSupport();
     if (error) {
       setMessage({
         type: 'error',
@@ -77,6 +77,7 @@ export default function CandidatesManagementPage() {
       setForm({
         name: candidate.name,
         position: candidate.position,
+        house: candidate.house,
         department: candidate.department,
         year: candidate.year,
         bio: candidate.bio,
@@ -190,6 +191,7 @@ export default function CandidatesManagementPage() {
       const dataToSubmit = {
         name: form.name.trim(),
         position: form.position.trim(),
+        house: form.house,
         department: form.department.trim(),
         year: form.year.trim(),
         bio: form.bio.trim(),
@@ -203,7 +205,7 @@ export default function CandidatesManagementPage() {
           .from('candidates')
           .update(dataToSubmit)
           .eq('id', editingId)
-          .select('id,name,position,department,year,bio,photo_url,manifesto,vote_count,created_at')
+          .select('id,name,position,house,department,year,bio,photo_url,manifesto,vote_count,created_at')
           .single();
         
         if (error) {
@@ -213,7 +215,12 @@ export default function CandidatesManagementPage() {
         setCandidates((current) =>
           current
             .map((candidate) => (candidate.id === editingId ? data : candidate))
-            .sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name))
+            .sort(
+              (a, b) =>
+                a.house.localeCompare(b.house) ||
+                a.position.localeCompare(b.position) ||
+                a.name.localeCompare(b.name)
+            )
         );
         setMessage({
           type: uploadWarning ? 'error' : 'success',
@@ -224,7 +231,7 @@ export default function CandidatesManagementPage() {
         const { data, error } = await supabase
           .from('candidates')
           .insert([dataToSubmit])
-          .select('id,name,position,department,year,bio,photo_url,manifesto,vote_count,created_at')
+          .select('id,name,position,house,department,year,bio,photo_url,manifesto,vote_count,created_at')
           .single();
         
         if (error) {
@@ -232,7 +239,12 @@ export default function CandidatesManagementPage() {
           throw new Error(`Failed to add candidate: ${error.message}`);
         }
         setCandidates((current) =>
-          [...current, data].sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name))
+          [...current, data].sort(
+            (a, b) =>
+              a.house.localeCompare(b.house) ||
+              a.position.localeCompare(b.position) ||
+              a.name.localeCompare(b.name)
+          )
         );
         setMessage({
           type: uploadWarning ? 'error' : 'success',
@@ -270,7 +282,14 @@ export default function CandidatesManagementPage() {
     }
   };
 
-  const positions = useMemo(() => Array.from(new Set(candidates.map((c) => c.position))), [candidates]);
+  const houseGroups = useMemo(
+    () =>
+      CANDIDATE_HOUSE_OPTIONS.map((house) => ({
+        house: house.value,
+        candidates: candidates.filter((candidate) => candidate.house === house.value),
+      })).filter((group) => group.candidates.length > 0),
+    [candidates]
+  );
 
   return (
     <AdminLayout activePage="candidates">
@@ -335,19 +354,16 @@ export default function CandidatesManagementPage() {
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            {positions.map((position) => {
-              const positionCandidates = candidates.filter(
-                (c) => c.position === position
-              );
+          <div className="space-y-6">
+            {houseGroups.map(({ house, candidates: houseCandidates }) => {
               return (
-                <div key={position}>
+                <div key={house}>
                   <h2 className="text-lg font-bold text-slate-900 mb-3 flex items-center gap-2">
                     <div className="w-1 h-6 bg-blue-600 rounded-full" />
-                    {position}
+                    {house}
                   </h2>
                   <div className="space-y-3">
-                    {positionCandidates.map((candidate) => (
+                    {houseCandidates.map((candidate) => (
                       <div
                         key={candidate.id}
                         className="bg-white rounded-xl border border-slate-200 p-4 hover:border-slate-300 transition-colors flex items-center justify-between"
@@ -355,6 +371,8 @@ export default function CandidatesManagementPage() {
                         <div>
                           <p className="font-semibold text-slate-900">{candidate.name}</p>
                           <p className="text-sm text-slate-500">
+                            {candidate.position}
+                            {(candidate.department || candidate.year) && ' · '}
                             {candidate.department && `${candidate.department} `}
                             {candidate.year && `| Year ${candidate.year}`}
                           </p>
@@ -437,6 +455,23 @@ export default function CandidatesManagementPage() {
                     placeholder="e.g., President, Vice President"
                     required
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    House *
+                  </label>
+                  <select
+                    value={form.house}
+                    onChange={(e) => setForm({ ...form, house: e.target.value as CandidateHouse })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    {CANDIDATE_HOUSE_OPTIONS.map((house) => (
+                      <option key={house.value} value={house.value}>
+                        {house.value}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">

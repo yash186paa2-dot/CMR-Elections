@@ -3,17 +3,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
 import { supabase, type Candidate, type Vote } from '@/lib/supabase';
+import { CANDIDATE_HOUSE_OPTIONS, type CandidateHouse } from '@/lib/houses';
+import { fetchCandidatesWithHouseSupport } from '@/lib/candidates';
 import {
   BarChart3,
   TrendingUp,
   Users,
   Download,
   AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 
 type VoteStats = {
   candidateId: string;
   candidateName: string;
+  house: CandidateHouse;
   position: string;
   voteCount: number;
   percentage: number;
@@ -23,7 +27,7 @@ export default function ResultsPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPosition, setSelectedPosition] = useState<string | null>(null);
+  const [selectedHouse, setSelectedHouse] = useState<CandidateHouse | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -31,22 +35,28 @@ export default function ResultsPage() {
     const fetchData = async () => {
       setLoading(true);
       const [candidatesRes, votesRes] = await Promise.all([
+        fetchCandidatesWithHouseSupport(),
         supabase
-          .from('candidates')
-          .select('id,name,position,department,year,bio,photo_url,manifesto,vote_count,created_at')
-          .order('position')
-          .order('name'),
-        supabase.from('votes').select('id,voter_id,voter_email,candidate_id,position,created_at'),
+          .from('votes')
+          .select('id,voter_id,voter_email,candidate_id,position,house,created_at')
+          .order('created_at', { ascending: false }),
       ]);
 
       if (!active) return;
 
+      if (candidatesRes.error) {
+        setLoading(false);
+        return;
+      }
+
       if (candidatesRes.data) {
         setCandidates(candidatesRes.data);
-        setSelectedPosition((current) => {
+        setSelectedHouse((current) => {
           if (current || candidatesRes.data.length === 0) return current;
-          const firstPos = Array.from(new Set(candidatesRes.data.map((c) => c.position)))[0];
-          return firstPos || null;
+          const firstHouse = CANDIDATE_HOUSE_OPTIONS.find((house) =>
+            candidatesRes.data.some((candidate) => candidate.house === house.value)
+          );
+          return firstHouse?.value ?? null;
         });
       }
       if (votesRes.data) setVotes(votesRes.data);
@@ -61,39 +71,48 @@ export default function ResultsPage() {
     };
   }, []);
 
-  const positions = useMemo(() => Array.from(new Set(candidates.map((c) => c.position))), [candidates]);
-  const currentPosition = selectedPosition || positions[0];
+  const currentHouse = selectedHouse || CANDIDATE_HOUSE_OPTIONS.find((house) =>
+    candidates.some((candidate) => candidate.house === house.value)
+  )?.value;
 
-  const positionCandidates = candidates.filter((c) => c.position === currentPosition);
-  const positionVotes = votes.filter((v) => v.position === currentPosition);
-  const totalPositionVotes = positionVotes.length;
+  const houseCandidates = candidates.filter((candidate) => candidate.house === currentHouse);
+  const totalHouseVotes = houseCandidates.reduce((sum, candidate) => sum + candidate.vote_count, 0);
 
   const allStats: VoteStats[] = candidates.map((candidate) => {
-    const totalVotesForPosition = votes.filter((v) => v.position === candidate.position).length;
-    const percentage = totalVotesForPosition > 0 ? (candidate.vote_count / totalVotesForPosition) * 100 : 0;
+    const totalVotesForHouse = candidates
+      .filter((currentCandidate) => currentCandidate.house === candidate.house)
+      .reduce((sum, currentCandidate) => sum + currentCandidate.vote_count, 0);
+    const percentage =
+      totalVotesForHouse > 0 ? (candidate.vote_count / totalVotesForHouse) * 100 : 0;
 
     return {
       candidateId: candidate.id,
       candidateName: candidate.name,
+      house: candidate.house,
       position: candidate.position,
       voteCount: candidate.vote_count,
       percentage,
     };
   });
 
-  const stats: VoteStats[] = allStats.filter((stat) => stat.position === currentPosition);
+  const stats = allStats.filter((stat) => stat.house === currentHouse);
 
-  const winner = stats.length > 0
-    ? stats.reduce((prev, current) => (prev.voteCount > current.voteCount ? prev : current))
-    : null;
+  const leadingCandidate =
+    stats.length > 0
+      ? stats.reduce((prev, current) => (prev.voteCount > current.voteCount ? prev : current))
+      : null;
 
   const uniqueVoters = new Set(votes.map((v) => v.voter_id)).size;
   const totalVotes = votes.length;
+  const activeHouses = CANDIDATE_HOUSE_OPTIONS.filter((house) =>
+    candidates.some((candidate) => candidate.house === house.value)
+  );
 
   const downloadResults = () => {
     const csv = [
-      ['Position', 'Candidate', 'Votes', 'Percentage'],
+      ['House', 'Position', 'Candidate', 'Votes', 'Percentage'],
       ...allStats.map((s) => [
+        s.house,
         s.position,
         s.candidateName,
         s.voteCount,
@@ -103,7 +122,7 @@ export default function ResultsPage() {
       ['Summary'],
       ['Total Votes', totalVotes],
       ['Unique Voters', uniqueVoters],
-      ['Positions', positions.length],
+      ['Active Houses', activeHouses.length],
     ]
       .map((row) => row.join(','))
       .join('\n');
@@ -164,8 +183,8 @@ export default function ResultsPage() {
           <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500 mb-1">Positions</p>
-                <p className="text-3xl font-bold text-slate-900">{positions.length}</p>
+                  <p className="text-sm font-medium text-slate-500 mb-1">Active Houses</p>
+                  <p className="text-3xl font-bold text-slate-900">{activeHouses.length}</p>
               </div>
               <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
                 <TrendingUp className="w-6 h-6 text-purple-600" />
@@ -189,21 +208,21 @@ export default function ResultsPage() {
           </div>
         ) : (
           <>
-            {/* Position Selector */}
+            {/* House Selector */}
             <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
-              <h3 className="font-semibold text-slate-900 mb-4">Select Position</h3>
+              <h3 className="font-semibold text-slate-900 mb-4">Select House</h3>
               <div className="flex flex-wrap gap-2">
-                {positions.map((pos) => (
+                {activeHouses.map((house) => (
                   <button
-                    key={pos}
-                    onClick={() => setSelectedPosition(pos)}
+                    key={house.value}
+                    onClick={() => setSelectedHouse(house.value)}
                     className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                      currentPosition === pos
+                      currentHouse === house.value
                         ? 'bg-blue-600 text-white'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
-                    {pos}
+                    {house.value}
                   </button>
                 ))}
               </div>
@@ -212,13 +231,13 @@ export default function ResultsPage() {
             {/* Results Chart */}
             <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
               <h3 className="text-xl font-bold text-slate-900 mb-6">
-                {currentPosition} - Results ({totalPositionVotes} votes)
+                {currentHouse} - Results ({totalHouseVotes} votes)
               </h3>
 
               {stats.length === 0 ? (
                 <div className="text-center py-12">
                   <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-slate-500">No candidates for this position</p>
+                  <p className="text-slate-500">No candidates assigned to this house</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -244,7 +263,7 @@ export default function ResultsPage() {
                             <div>
                               <p className="font-semibold text-slate-900">{stat.candidateName}</p>
                               <p className="text-xs text-slate-500">
-                                {stat.voteCount === 1 ? 'vote' : 'votes'}
+                                {stat.position} · {stat.voteCount === 1 ? 'vote' : 'votes'}
                               </p>
                             </div>
                           </div>
@@ -275,36 +294,63 @@ export default function ResultsPage() {
               )}
             </div>
 
-            {/* Winner Display */}
-            {winner && winner.voteCount > 0 && (
-              <div className="bg-gradient-to-r from-yellow-50 to-yellow-100 rounded-2xl border border-yellow-200 p-8 shadow-sm">
-                <div className="flex items-center gap-6">
-                  <div className="text-6xl">👑</div>
-                  <div>
-                    <p className="text-sm font-semibold text-yellow-700 uppercase tracking-wider mb-1">
-                      Leading candidate
-                    </p>
-                    <h3 className="text-2xl font-bold text-yellow-900 mb-2">{winner.candidateName}</h3>
-                    <p className="text-yellow-700">
-                      <span className="font-bold">{winner.voteCount}</span> votes (
-                      <span className="font-bold">{winner.percentage.toFixed(1)}%</span>)
+            {currentHouse && (
+              <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-900 mb-4">House Ballot Summary</h3>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <p className="text-sm font-medium text-slate-500">Candidates</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-900">{houseCandidates.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <p className="text-sm font-medium text-slate-500">Votes Cast</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-900">{totalHouseVotes}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <p className="text-sm font-medium text-slate-500">Top Candidate</p>
+                    <p className="mt-2 text-lg font-bold text-slate-900">
+                      {leadingCandidate?.candidateName ?? 'No votes yet'}
                     </p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Position Summary Table */}
+            {/* Winner Display */}
+            {leadingCandidate && leadingCandidate.voteCount > 0 && (
+              <div className="bg-gradient-to-r from-yellow-50 to-yellow-100 rounded-2xl border border-yellow-200 p-8 shadow-sm">
+                <div className="flex items-center gap-6">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-yellow-200 text-yellow-900">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-yellow-700 uppercase tracking-wider mb-1">
+                      Leading candidate
+                    </p>
+                    <h3 className="text-2xl font-bold text-yellow-900 mb-2">
+                      {leadingCandidate.candidateName}
+                    </h3>
+                    <p className="text-yellow-700">
+                      {leadingCandidate.position} ·{' '}
+                      <span className="font-bold">{leadingCandidate.voteCount}</span> votes (
+                      <span className="font-bold">{leadingCandidate.percentage.toFixed(1)}%</span>)
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* House Summary Table */}
             <div className="bg-white rounded-2xl mb-24 border border-slate-200 overflow-hidden shadow-sm">
               <div className="px-6 py-4 border-b border-slate-200">
-                <h3 className="text-lg font-bold text-slate-900">All Positions Summary</h3>
+                <h3 className="text-lg font-bold text-slate-900">All Houses Summary</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase">
-                        Position
+                        House
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase">
                         Leading Candidate
@@ -318,19 +364,21 @@ export default function ResultsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {positions.map((pos) => {
-                      const posStats = allStats.filter((s) => s.position === pos);
-                      const leader = posStats.length > 0
-                        ? posStats.reduce((prev, current) =>
+                    {activeHouses.map((house) => {
+                      const houseStats = allStats.filter((stat) => stat.house === house.value);
+                      const leader = houseStats.length > 0
+                        ? houseStats.reduce((prev, current) =>
                             prev.voteCount > current.voteCount ? prev : current
                           )
                         : null;
                       return (
-                        <tr key={pos} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="px-6 py-4 font-semibold text-slate-900">{pos}</td>
-                          <td className="px-6 py-4 text-slate-700">{leader?.candidateName ?? 'No candidates'}</td>
+                        <tr key={house.value} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="px-6 py-4 font-semibold text-slate-900">{house.value}</td>
+                          <td className="px-6 py-4 text-slate-700">
+                            {leader?.candidateName ?? 'No candidates'}
+                          </td>
                           <td className="px-6 py-4 font-medium text-slate-900">{leader?.voteCount ?? 0}</td>
-                          <td className="px-6 py-4 text-slate-600">{posStats.length}</td>
+                          <td className="px-6 py-4 text-slate-600">{houseStats.length}</td>
                         </tr>
                       );
                     })}

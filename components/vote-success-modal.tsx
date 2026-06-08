@@ -37,7 +37,8 @@ export function VoteSuccessModal({ candidate, onDismiss }: Props) {
         <p className="mx-auto mt-3 max-w-sm text-base leading-relaxed text-slate-600">
           Your vote for{' '}
           <span className="font-bold text-slate-900">{candidate.name}</span> as{' '}
-          <span className="font-bold text-slate-900">{candidate.position}</span> has been saved.
+          <span className="font-bold text-slate-900">{candidate.position}</span> in{' '}
+          <span className="font-bold text-slate-900">{candidate.house}</span> has been saved.
         </p>
 
         {candidate.photo_url && (
@@ -54,8 +55,8 @@ export function VoteSuccessModal({ candidate, onDismiss }: Props) {
 
         <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
           <p className="text-base leading-relaxed text-slate-700">
-            Continue to the next position on the ballot when you are ready. You can vote once per
-            position only.
+            Your house and ballot are now locked. You cannot switch houses or cast another vote in
+            this election.
           </p>
         </div>
 
@@ -64,7 +65,7 @@ export function VoteSuccessModal({ candidate, onDismiss }: Props) {
           onClick={onDismiss}
           className="mt-8 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-base font-bold text-white shadow-lg transition-all hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 active:scale-[0.98]"
         >
-          Continue to next position
+          Return to ballot
           <ArrowRight className="h-5 w-5" aria-hidden />
         </button>
       </div>

@@ -87,6 +87,9 @@ export function VoteConfirmModal({ candidate, onConfirm, onCancel, loading }: Pr
                     <p className="mt-1 text-lg font-bold text-slate-700 sm:text-xl">
                       {candidate.position}
                     </p>
+                    <p className="mt-1 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
+                      {candidate.house}
+                    </p>
                     {(candidate.department || candidate.year) && (
                       <p className="mt-1.5 text-sm text-slate-500 sm:text-base">
                         {[candidate.department, candidate.year].filter(Boolean).join(' · ')}
@@ -99,7 +102,7 @@ export function VoteConfirmModal({ candidate, onConfirm, onCancel, loading }: Pr
 
             <p className="mt-3 flex items-center justify-center gap-2 text-center text-xs text-slate-500 sm:mt-4 sm:text-sm">
               <Shield className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-              One vote per position · cannot be changed after confirming
+              One vote only · your selected house remains locked after confirming
             </p>
           </div>
         </div>
