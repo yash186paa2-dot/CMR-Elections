@@ -55,3 +55,18 @@ export type Student = {
   created_at: string;
   updated_at: string;
 };
+
+export type ElectionSetting = {
+  id: string;
+  key: string;
+  value: any;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export type TimerSettings = {
+  enabled: boolean;
+  duration: number; // in seconds
+  status: 'stopped' | 'running' | 'paused';
+  start_time: string | null;
+};

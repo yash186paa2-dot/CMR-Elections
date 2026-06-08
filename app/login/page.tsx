@@ -57,7 +57,7 @@ export default function LoginPage() {
     } else {
       setMessage({
         type: 'success',
-        text: 'Check your email for a login link. Click the link to verify and vote!',
+        text: 'Check your email for a login link from Supabase Auth. Click the link to verify and vote!',
       });
       setEmail('');
     }
@@ -129,7 +129,7 @@ export default function LoginPage() {
     loginMode === 'student'
       ? 'Sign in with your CMR college email to cast your vote in the student council elections.'
       : loginMode === 'rollno'
-        ? 'Sign in with your roll number and date of birth if you do not have a college email.'
+        ? 'Sign in with your roll number and date of birth.'
         : 'Sign in with your admin credentials to manage the election.';
 
   return (
@@ -162,7 +162,7 @@ export default function LoginPage() {
                 : 'bg-white/10 text-slate-300 hover:bg-white/20 border border-white/10'
             }`}
           >
-            Student Login
+            2nd PUC Login
           </button>
 
           <button
@@ -174,7 +174,7 @@ export default function LoginPage() {
                 : 'bg-white/10 text-slate-300'
             }`}
           >
-            Roll No Login
+            1st PUC Login
           </button>
 
           <button

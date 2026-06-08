@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
+import { TimerSettings } from '@/components/timer-settings';
 import { supabase, type Candidate } from '@/lib/supabase';
 import {
   BarChart3,
@@ -73,6 +74,46 @@ export default function AdminDashboard() {
   return (
     <AdminLayout activePage="dashboard">
       <div className="space-y-8">
+        {/* Timer Settings */}
+        <TimerSettings onSave={() => {
+          // Refresh stats when timer settings are saved
+          const fetchStats = async () => {
+            setLoading(true);
+            
+            const [
+              candidatesRes,
+              votesRes,
+              votersRes,
+            ] = await Promise.all([
+              supabase.from('candidates').select('*', { count: 'exact' }),
+              supabase.from('votes').select('*', { count: 'exact' }),
+              supabase
+                .from('votes')
+                .select('voter_id')
+                .then((res) => ({
+                  ...res,
+                  count: res.data ? new Set(res.data.map((v: any) => v.voter_id)).size : 0,
+                })),
+            ]);
+
+            const candidates = candidatesRes.data || [];
+            const positions = new Set(candidates.map((c) => c.position)).size;
+            
+            setStats({
+              totalCandidates: candidates.length,
+              totalVotes: votesRes.count || 0,
+              totalPositions: positions,
+              uniqueVoters: votersRes.count || 0,
+            });
+
+            const sorted = candidates.sort((a, b) => b.vote_count - a.vote_count);
+            setTopCandidates(sorted.slice(0, 5));
+
+            setLoading(false);
+          };
+          fetchStats();
+        }} />
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <StatCard

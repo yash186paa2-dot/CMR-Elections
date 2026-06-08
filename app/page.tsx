@@ -7,6 +7,7 @@ import { useAuth } from '@/components/auth-provider';
 import { supabase, type Candidate, type Vote } from '@/lib/supabase';
 import { CandidateCard } from '@/components/candidate-card';
 import { VoteConfirmModal } from '@/components/vote-confirm-modal';
+import { VoteReviewModal } from '@/components/vote-review-modal';
 import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { ErrorModal } from '@/components/error-modal';
 import {
@@ -63,6 +64,15 @@ export default function HomePage() {
   const [successCandidate, setSuccessCandidate] = useState<Candidate | null>(null);
   const [votingLoading, setVotingLoading] = useState(false);
   const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
+  const [selectedCandidates, setSelectedCandidates] = useState<Record<string, Candidate>>({});
+  const [selectedPosition, setSelectedPosition] = useState<string | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  
+  // Timer state
+  const [timerEnabled, setTimerEnabled] = useState(false);
+  const [timerDuration, setTimerDuration] = useState(60);
+  const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
+  const [timeRemaining, setTimeRemaining] = useState(0);
 
   useEffect(() => {
     if (!loading && !user && !isGuest) {
@@ -118,6 +128,59 @@ export default function HomePage() {
     if (user || isGuest) fetchData();
   }, [user, isGuest, fetchData]);
 
+  // Fetch timer settings
+  useEffect(() => {
+    const fetchTimerSettings = async () => {
+      try {
+        const [enabledData, durationData, statusData, startTimeData] = await Promise.all([
+          supabase.from('election_settings').select('value').eq('key', 'timer_enabled').single(),
+          supabase.from('election_settings').select('value').eq('key', 'timer_duration').single(),
+          supabase.from('election_settings').select('value').eq('key', 'timer_status').single(),
+          supabase.from('election_settings').select('value').eq('key', 'timer_start_time').single(),
+        ]);
+
+        if (enabledData.data?.value) setTimerEnabled(enabledData.data.value === 'true');
+        if (durationData.data?.value) setTimerDuration(Number(durationData.data.value));
+        if (statusData.data?.value) setTimerStatus(statusData.data.value);
+        
+        if (startTimeData.data?.value && statusData.data?.value === 'running') {
+          const startTime = new Date(startTimeData.data.value).getTime();
+          const now = Date.now();
+          const elapsed = Math.floor((now - startTime) / 1000);
+          const remaining = Math.max(0, timerDuration - elapsed);
+          setTimeRemaining(remaining);
+        }
+      } catch (err) {
+        console.error('Error fetching timer settings:', err);
+      }
+    };
+
+    fetchTimerSettings();
+    const interval = setInterval(fetchTimerSettings, 1000); // Poll every second
+    return () => clearInterval(interval);
+  }, [timerDuration]);
+
+  // Countdown timer logic
+  useEffect(() => {
+    if (!timerEnabled || timerStatus !== 'running') return;
+
+    const interval = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev <= 0) {
+          clearInterval(interval);
+          // Auto-submit when timer reaches zero
+          if (Object.keys(selectedCandidates).length > 0) {
+            handleReviewConfirm();
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [timerEnabled, timerStatus, selectedCandidates]);
+
   const positions = useMemo(
     () => Array.from(new Set(candidates.map((c) => c.position))),
     [candidates]
@@ -137,6 +200,71 @@ export default function HomePage() {
     () => sortPositionEntries(Object.entries(grouped)),
     [grouped]
   );
+
+  const handleReviewConfirm = async () => {
+    if (!user) return;
+    
+    setVotingLoading(true);
+    try {
+      // Submit all selected candidates that haven't been voted for yet
+      const votesToSubmit = Object.entries(selectedCandidates).filter(
+        ([position]) => !myVotes.some(v => v.position === position)
+      );
+
+      for (const [position, candidate] of votesToSubmit) {
+        const { error } = await supabase
+          .from('votes')
+          .insert({
+            voter_id: user.id,
+            voter_email: user.email,
+            candidate_id: candidate.id,
+            position: position,
+          });
+
+        if (error) {
+          throw error;
+        }
+
+        // Update local state
+        setMyVotes((current) => [
+          ...current,
+          {
+            id: `${position}-${candidate.id}`,
+            voter_id: user.id,
+            voter_email: user.email ?? '',
+            candidate_id: candidate.id,
+            position: position,
+            created_at: new Date().toISOString(),
+          } satisfies Vote
+        ]);
+
+        setCandidates((current) =>
+          current.map((c) =>
+            c.id === candidate.id
+              ? { ...c, vote_count: c.vote_count + 1 }
+              : c
+          )
+        );
+      }
+
+      setShowReviewModal(false);
+      setSelectedCandidates({});
+      setSuccessCandidate(null); // We'll show a general success message instead
+    } catch (err) {
+      console.error('Vote submission error:', err);
+      setErrorModal({
+        title: 'Voting Error',
+        message: 'There was an error submitting your votes. Please check your internet connection and try again.',
+      });
+    } finally {
+      setVotingLoading(false);
+    }
+  };
+
+  const handleEditSelection = (position: string) => {
+    setShowReviewModal(false);
+    setSelectedPosition(position);
+  };
 
   const handleVoteConfirm = async () => {
     if (!confirmCandidate) return;
@@ -193,6 +321,11 @@ export default function HomePage() {
       } else {
         setConfirmCandidate(null);
         setSuccessCandidate(confirmCandidate);
+        setSelectedCandidates((prev) => {
+          const newSelected = { ...prev };
+          delete newSelected[confirmCandidate.position];
+          return newSelected;
+        });
         const recordedVote =
           data ??
           ({
@@ -225,9 +358,13 @@ export default function HomePage() {
   };
 
   const totalPositions = positions.length;
-  const votedPositions = myVotes.length;
+  const votedPositions = Math.min(myVotes.length, totalPositions);
   const completionPercent =
     totalPositions > 0 ? Math.round((votedPositions / totalPositions) * 100) : 0;
+
+  const selectedPositionData = selectedPosition
+    ? grouped[selectedPosition]
+    : null;
 
   const currentStep = useMemo(() => {
     if (totalPositions === 0) return 0;
@@ -253,19 +390,19 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#eef2f7] text-slate-950">
-      <header className="sticky top-0 z-40 border-b border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-md">
-        <div className="mx-auto flex h-[4.25rem] max-w-3xl items-center justify-between gap-3 px-4 sm:max-w-7xl sm:px-6 sm:h-16">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white shadow-sm">
+        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between gap-3 px-4 sm:max-w-7xl sm:px-6 sm:h-16">
           <div className="flex min-w-0 items-center gap-3">
             <Image
               src="/logo.png"
               alt="CMR National PU College"
-              width={44}
-              height={44}
-              className="h-11 w-11 shrink-0 rounded-xl object-contain"
+              width={36}
+              height={36}
+              className="h-9 w-9 shrink-0 rounded-lg object-contain sm:h-10 sm:w-10"
             />
             <div className="min-w-0">
-              <p className="truncate text-base font-bold text-slate-900 sm:text-lg">CMR Elections</p>
-              <p className="truncate text-xs font-medium text-slate-500 sm:text-sm">
+              <p className="truncate text-sm font-bold text-slate-900 sm:text-base">CMR Elections</p>
+              <p className="truncate text-[10px] font-medium text-slate-500 sm:text-xs">
                 Student Council 2026
               </p>
             </div>
@@ -277,9 +414,9 @@ export default function HomePage() {
                 type="button"
                 onClick={() => router.push('/admin')}
                 aria-label="Open admin dashboard"
-                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:min-w-0 sm:px-4"
+                className="flex min-h-9 min-w-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 sm:min-h-10 sm:min-w-0 sm:px-3 sm:text-sm"
               >
-                <BarChart2 className="h-5 w-5" aria-hidden />
+                <BarChart2 className="h-4 w-4" aria-hidden />
                 <span className="hidden sm:inline">Admin</span>
               </button>
             )}
@@ -288,9 +425,9 @@ export default function HomePage() {
                 type="button"
                 onClick={() => router.push('/login')}
                 aria-label="Log in to vote"
-                className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white transition-colors hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="flex min-h-9 items-center gap-2 rounded-lg bg-blue-700 px-3 text-xs font-bold text-white hover:bg-blue-800 sm:min-h-10 sm:px-4 sm:text-sm"
               >
-                <LogOut className="h-4 w-4 rotate-180" aria-hidden />
+                <LogOut className="h-3.5 w-3.5 rotate-180" aria-hidden />
                 <span>Log in</span>
               </button>
             ) : (
@@ -298,210 +435,219 @@ export default function HomePage() {
                 type="button"
                 onClick={signOut}
                 aria-label="Sign out"
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 transition-colors hover:bg-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 sm:min-w-0 sm:gap-2 sm:px-4"
+                className="flex min-h-9 min-w-9 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 sm:min-h-10 sm:min-w-0 sm:gap-2 sm:px-4"
               >
-                <LogOut className="h-5 w-5" aria-hidden />
-                <span className="hidden text-sm font-semibold sm:inline">Sign out</span>
+                <LogOut className="h-4 w-4" aria-hidden />
+                <span className="hidden text-xs font-semibold sm:inline sm:text-sm">Sign out</span>
               </button>
             )}
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:max-w-7xl sm:px-6 sm:pt-8">
-        {/* Progress & instructions */}
+      <main className="mx-auto max-w-3xl px-4 pb-24 pt-4 sm:max-w-7xl sm:px-6 sm:pt-6 sm:pb-12">
+        {/* Progress tracker */}
         <section
-          className="mb-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5"
+          className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
           aria-label="Voting progress"
         >
-          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-5 py-6 sm:px-8 sm:py-7">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
-              </span>
-              <span className="text-xs font-bold uppercase tracking-widest text-emerald-300">
-                Official ballot · CMR National PU College
-              </span>
-            </div>
-            <h1 className="text-2xl font-bold leading-tight text-white sm:text-3xl">
-              Student Council Elections
-            </h1>
-            {!isGuest && totalPositions > 0 && (
-              <p className="mt-3 text-lg font-semibold text-cyan-100 sm:text-xl">
-                {allPositionsComplete ? (
-                  <>All {totalPositions} positions completed</>
-                ) : (
-                  <>
-                    Step {currentStep} of {totalPositions} positions
-                  </>
-                )}
-              </p>
-            )}
-            <p className="mt-2 text-base leading-relaxed text-slate-300">
-              Select one candidate for each position
-            </p>
-
-            {!isGuest && totalPositions > 0 && (
-              <div className="mt-6">
-                <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-300">
-                  <span>Your progress</span>
-                  <span className="text-white">
-                    {votedPositions} of {totalPositions} voted
-                  </span>
-                </div>
-                <div
-                  className="h-3 overflow-hidden rounded-full bg-white/15"
-                  role="progressbar"
-                  aria-valuenow={completionPercent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Ballot completion"
-                >
+          <div className="bg-slate-900 px-4 py-3 sm:px-6 sm:py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-base font-bold text-white sm:text-lg">Election Management System</h1>
+                <p className="mt-0.5 text-xs text-slate-300">CMR National PU College · Student Council 2026</p>
+              </div>
+              {!isGuest && totalPositions > 0 && (
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-white">
+                    {votedPositions}/{totalPositions} Voted
+                  </p>
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-700"
-                    style={{ width: `${completionPercent}%` }}
-                  />
+                    className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-white/20"
+                    role="progressbar"
+                    aria-valuenow={completionPercent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="h-full rounded-full bg-emerald-400"
+                      style={{ width: `${completionPercent}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-
-          <div className="grid gap-0 sm:grid-cols-2">
-            <div className="flex gap-4 border-b border-slate-100 p-5 sm:border-b-0 sm:border-r sm:p-6">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50">
-                <Info className="h-6 w-6 text-blue-700" aria-hidden />
-              </div>
-              <div>
-                <p className="text-base font-bold text-slate-900">Before you vote</p>
-                <p className="mt-1 text-base leading-relaxed text-slate-700">
-                  Read each candidate&apos;s details and manifesto carefully before casting your
-                  vote.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-4 p-5 sm:p-6">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-50">
-                <ListChecks className="h-6 w-6 text-amber-700" aria-hidden />
-              </div>
-              <div>
-                <p className="text-base font-bold text-slate-900">One vote per position</p>
-                <p className="mt-1 text-base leading-relaxed text-slate-700">
-                  You can vote only once per position. Your choice cannot be changed after you
-                  confirm.
-                </p>
-              </div>
+              )}
             </div>
           </div>
         </section>
 
         {dataLoading ? (
-          <div className="space-y-12">
-            {[...Array(2)].map((_, sectionIndex) => (
+          <div className="space-y-4">
+            {[...Array(4)].map((_, i) => (
               <div
-                key={sectionIndex}
-                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+                key={i}
+                className="h-20 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
               >
-                <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-slate-100" />
-                <div className="grid grid-cols-1 gap-8">
-                  {[...Array(2)].map((_, i) => (
-                    <div
-                      key={i}
-                      className="overflow-hidden rounded-2xl border border-slate-100 animate-pulse"
-                    >
-                      <div className="aspect-[3/4] bg-slate-100" />
-                      <div className="space-y-3 p-5">
-                        <div className="h-6 w-3/4 rounded-lg bg-slate-100" />
-                        <div className="h-14 rounded-2xl bg-slate-100" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <div className="h-5 w-40 rounded bg-slate-100" />
               </div>
             ))}
           </div>
         ) : candidates.length === 0 ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
-              <VoteIcon className="h-8 w-8 text-slate-500" aria-hidden />
+          <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">
+              <VoteIcon className="h-5 w-5 text-slate-500" aria-hidden />
             </div>
-            <h2 className="text-xl font-bold text-slate-950">Ballot is not ready yet</h2>
-            <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-slate-600">
-              No candidates are available right now. Please check back later or contact the election
-              committee.
+            <h2 className="text-base font-bold text-slate-950">Ballot is not ready yet</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-600">
+              No candidates are available right now. Please check back later or contact the election committee.
             </p>
           </div>
+        ) : selectedPosition ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setSelectedPosition(null)}
+              className="mb-4 flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 active:text-slate-900 min-h-[44px]"
+            >
+              ← Back to Positions
+            </button>
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                <h2 className="text-lg font-bold text-slate-900">{selectedPosition}</h2>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  Select one candidate
+                </p>
+              </div>
+              <div className="p-4">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+                  {selectedPositionData?.map((candidate, index) => {
+                    const positionVote = myVotes.find((v) => v.position === selectedPosition);
+                    return (
+                      <CandidateCard
+                        key={candidate.id}
+                        candidate={candidate}
+                        hasVoted={!!positionVote}
+                        isVotedFor={positionVote?.candidate_id === candidate.id || selectedCandidates[selectedPosition]?.id === candidate.id}
+                        position={selectedPosition}
+                        onSelect={(c) => setSelectedCandidates(prev => ({ ...prev, [selectedPosition]: c }))}
+                        rank={index}
+                      />
+                    );
+                  })}
+                </div>
+                
+                {(() => {
+                  const positionVote = myVotes.find((v) => v.position === selectedPosition);
+                  return !positionVote && selectedCandidates[selectedPosition] && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmCandidate(selectedCandidates[selectedPosition])}
+                        className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-slate-900 px-6 text-sm font-bold text-white shadow-sm hover:bg-slate-800 active:bg-slate-700 sm:min-h-10 sm:px-5"
+                      >
+                        Submit Vote
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </>
         ) : (
-          <div className="space-y-0">
+          <div className="space-y-3">
             {sortedBallot.map(([position, positionCandidates], sectionIndex) => {
               const positionVote = myVotes.find((v) => v.position === position);
               const isComplete = !!positionVote;
-              const accent = getPositionAccent(position);
-
+              
               return (
-                <section
+                <button
                   key={position}
-                  id={`position-${sectionIndex}`}
-                  aria-labelledby={`heading-${sectionIndex}`}
-                 className="mb-40 scroll-mt-24 last:mb-16 sm:mb-48"
+                  type="button"
+                  onClick={() => setSelectedPosition(position)}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm text-left hover:border-slate-300 hover:bg-slate-50 active:bg-slate-100 min-h-[72px] sm:min-h-0"
                 >
-                  <div className="overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)] mb-24">
-                    <header className={`bg-gradient-to-r ${accent} px-5 py-8 sm:px-8 sm:py-10`}>
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div>
-                          <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/80">
-                            Position {sectionIndex + 1} of {sortedBallot.length}
-                          </p>
-                          <h2
-                            id={`heading-${sectionIndex}`}
-                            className="mt-2 text-2xl font-black uppercase tracking-wide text-white sm:text-4xl"
-                          >
-                            {position}
-                          </h2>
-                          <p className="mt-3 text-base font-medium text-white/90 sm:text-lg">
-                            Select one candidate for this position.
-                          </p>
-                        </div>
-                        {isComplete && (
-                          <span className="inline-flex min-h-11 items-center gap-2 rounded-full border-2 border-white/40 bg-white/15 px-4 py-2 text-sm font-bold text-white backdrop-blur">
-                            <CheckCircle2 className="h-5 w-5" aria-hidden />
-                            Vote recorded
-                          </span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                        isComplete ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {isComplete ? (
+                          <CheckCircle2 className="h-5 w-5" aria-hidden />
+                        ) : (
+                          <span className="text-sm font-semibold">{sectionIndex + 1}</span>
                         )}
                       </div>
-                    </header>
-
-                    <div className="border-t border-slate-100 bg-slate-50/50 p-5 sm:p-8 pb-20">
-                      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 xl:grid-cols-3 mb-20">
-                        {positionCandidates.map((candidate, index) => (
-                          <CandidateCard
-                            key={candidate.id}
-                            candidate={candidate}
-                            hasVoted={!!positionVote}
-                            isVotedFor={positionVote?.candidate_id === candidate.id}
-                            position={position}
-                            onVote={setConfirmCandidate}
-                            rank={index}
-                          />
-                        ))}
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">{position}</h3>
+                        <p className="text-xs text-slate-600">
+                          {positionCandidates.length} Candidate{positionCandidates.length !== 1 ? 's' : ''}
+                        </p>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      {isComplete && (
+                        <span className="text-xs font-semibold text-emerald-700">Voted</span>
+                      )}
+                      <span className="text-slate-400">→</span>
+                    </div>
                   </div>
-
-                </section>
+                </button>
               );
             })}
           </div>
         )}
 
-        <footer className="mt-12 flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-5 text-center shadow-sm">
-          <Shield className="h-5 w-5 text-slate-500" aria-hidden />
-          <p className="max-w-lg text-base leading-relaxed text-slate-600">
-            All votes are securely recorded. Each student may vote once per position only.
+        <footer className="mt-8 rounded-xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
+          <p className="text-xs font-medium text-slate-600">
+            Election Management System | Designed & Developed by Yeshwanth B
           </p>
-          <p className="text-sm font-semibold text-slate-500">CMR National PU College · 2026</p>
         </footer>
       </main>
+
+      {/* Sticky bottom action bar for mobile and desktop */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur-sm px-4 py-3 shadow-lg">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-slate-700">
+                Positions Completed: {votedPositions} / {totalPositions}
+              </p>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${completionPercent}%` }}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const allSelected = positions.every(pos => selectedCandidates[pos] || myVotes.some(v => v.position === pos));
+                if (allSelected && votedPositions < totalPositions) {
+                  setShowReviewModal(true);
+                }
+              }}
+              disabled={votedPositions < totalPositions}
+              className={`flex min-h-12 items-center justify-center gap-2 rounded-lg px-8 text-base font-bold shadow-sm transition-all sm:min-h-14 sm:px-10 sm:text-lg ${
+                votedPositions >= totalPositions
+                  ? 'bg-slate-900 text-white hover:bg-slate-800'
+                  : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              Submit Final Vote
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {showReviewModal && (
+        <VoteReviewModal
+          selections={selectedCandidates}
+          onEdit={handleEditSelection}
+          onConfirm={handleReviewConfirm}
+          onCancel={() => setShowReviewModal(false)}
+          loading={votingLoading}
+        />
+      )}
 
       {confirmCandidate && (
         <VoteConfirmModal
