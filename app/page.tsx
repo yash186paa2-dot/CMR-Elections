@@ -443,9 +443,9 @@ export default function HomePage() {
                   key={position}
                   id={`position-${sectionIndex}`}
                   aria-labelledby={`heading-${sectionIndex}`}
-                 className="mb-40 scroll-mt-24 last:mb-20 sm:mb-48"
+                 className="mb-40 scroll-mt-24 last:mb-16 sm:mb-48"
                 >
-                  <div className="overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+                  <div className="overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)] mb-24">
                     <header className={`bg-gradient-to-r ${accent} px-5 py-8 sm:px-8 sm:py-10`}>
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
@@ -471,8 +471,8 @@ export default function HomePage() {
                       </div>
                     </header>
 
-                    <div className="border-t border-slate-100 bg-slate-50/50 p-5 sm:p-8">
-                      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 xl:grid-cols-3">
+                    <div className="border-t border-slate-100 bg-slate-50/50 p-5 sm:p-8 pb-20">
+                      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 xl:grid-cols-3 mb-20">
                         {positionCandidates.map((candidate, index) => (
                           <CandidateCard
                             key={candidate.id}
@@ -488,13 +488,6 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  {sectionIndex < sortedBallot.length - 1 && (
-                    <div className="mx-auto mt-14 flex max-w-xs items-center gap-4 sm:mt-32" aria-hidden>
-                      <div className="h-px flex-1 bg-slate-300" />
-                      <VoteIcon className="h-5 w-5 text-slate-400" />
-                      <div className="h-px flex-1 bg-slate-300" />
-                    </div>
-                  )}
                 </section>
               );
             })}

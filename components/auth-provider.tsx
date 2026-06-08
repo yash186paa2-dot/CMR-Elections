@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: 'https://cmr-elections-3k3d.vercel.app/auth/callback',
+        emailRedirectTo: 'https://cmr-student-elections.vercel.app/auth/callback',
       },
     });
 
