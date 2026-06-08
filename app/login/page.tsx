@@ -162,7 +162,7 @@ export default function LoginPage() {
                 : 'bg-white/10 text-slate-300 hover:bg-white/20 border border-white/10'
             }`}
           >
-            2nd PUC Login
+            2nd PUC Student Login
           </button>
 
           <button
@@ -174,7 +174,7 @@ export default function LoginPage() {
                 : 'bg-white/10 text-slate-300'
             }`}
           >
-            1st PUC Login
+            1st PUC Student Login
           </button>
 
           <button
