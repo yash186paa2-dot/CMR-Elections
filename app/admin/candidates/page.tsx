@@ -5,7 +5,8 @@ import Image from 'next/image';
 import { AdminLayout } from '@/components/admin-layout';
 import { supabase, type Candidate } from '@/lib/supabase';
 import { CANDIDATE_SELECT, fetchCandidates } from '@/lib/candidates';
-import { Plus, Edit2, Trash2, AlertCircle, CheckCircle2, X, Upload } from 'lucide-react';
+import { Plus, Edit2, Trash2, AlertCircle, CheckCircle2, X, Upload, MapPin } from 'lucide-react';
+import { CANDIDATE_HOUSE_OPTIONS } from '@/lib/houses';
 
 export default function CandidatesManagementPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -24,6 +25,7 @@ export default function CandidatesManagementPage() {
     bio: '',
     photo_url: '',
     manifesto: '',
+    house: 'None',
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
@@ -42,6 +44,7 @@ export default function CandidatesManagementPage() {
       bio: '',
       photo_url: '',
       manifesto: '',
+      house: 'None',
     });
     setSelectedFile(null);
     setPreviewUrl('');
@@ -76,6 +79,7 @@ export default function CandidatesManagementPage() {
         bio: candidate.bio,
         photo_url: candidate.photo_url,
         manifesto: candidate.manifesto,
+        house: candidate.house || 'None',
       });
       setPreviewUrl(candidate.photo_url);
       setEditingId(candidate.id);
@@ -174,6 +178,7 @@ export default function CandidatesManagementPage() {
         bio: form.bio.trim(),
         photo_url: photoUrl.trim(),
         manifesto: form.manifesto.trim(),
+        house: form.house,
       };
 
       if (editingId) {
@@ -312,12 +317,16 @@ export default function CandidatesManagementPage() {
                     {candidate.department && `${candidate.department} `}
                     {candidate.year && `| Year ${candidate.year}`}
                   </p>
-                  {candidate.bio && <p className="mt-1 line-clamp-1 text-xs text-slate-600">{candidate.bio}</p>}
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="rounded-full bg-green-600 px-2 py-1 text-xs font-medium text-white">
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 border border-slate-200">
+                      <MapPin className="h-2.5 w-2.5" />
+                      {candidate.house || 'None'}
+                    </span>
+                    <span className="rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">
                       {candidate.vote_count} votes
                     </span>
                   </div>
+                  {candidate.bio && <p className="mt-1 line-clamp-1 text-xs text-slate-600">{candidate.bio}</p>}
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">
                   <button
@@ -395,6 +404,30 @@ export default function CandidatesManagementPage() {
                     className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., 2nd Year"
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Allocated House (Filtering) *</label>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {CANDIDATE_HOUSE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setForm({ ...form, house: option.value })}
+                        className={`flex flex-col items-start rounded-xl border p-3 text-left transition-all ${
+                          form.house === option.value
+                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className={`text-xs font-bold ${form.house === option.value ? 'text-blue-700' : 'text-slate-900'}`}>
+                          {option.value}
+                        </span>
+                        <span className="mt-1 text-[10px] leading-tight text-slate-500">
+                          {option.description.split('.')[0]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 

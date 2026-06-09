@@ -26,6 +26,7 @@ export type Candidate = {
   photo_url: string;
   manifesto: string;
   vote_count: number;
+  house: string;
   created_at: string;
 };
 

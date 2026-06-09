@@ -42,22 +42,18 @@ export function AdminLayout({ children, activePage }: AdminLayoutProps) {
       <div className="fixed left-0 top-0 h-screen w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
         {/* Logo */}
         <div className="p-6 border-b border-slate-800">
-          <div className="flex items-center gap-3">
-           <div className="flex items-center justify-center">
-
-          <div className="text-center mb-6">
-          <div className="text-center mb-6">
-            <img
+          <div className="flex flex-col items-center gap-4">
+            <Image
               src="/logo.png"
               alt="CMR Logo"
-              className="w-40 mx-auto"
+              width={120}
+              height={120}
+              className="w-32 object-contain"
+              priority
             />
-          </div>
-          </div>
-          </div>
-            <div>
+            <div className="text-center">
               <p className="font-bold text-white text-sm">CMR Admin</p>
-              <p className="text-xs text-slate-400">Elections</p>
+              <p className="text-xs text-slate-400">Election Dashboard</p>
             </div>
           </div>
         </div>

@@ -126,7 +126,23 @@
 
   .candidate-card {
     content-visibility: auto;
-    contain-intrinsic-size: 640px;
+    contain-intrinsic-size: 320px;
+  }
+
+  .glass-panel {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.72)),
+      rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(24px);
+  }
+
+  .progress-shimmer {
+    background-size: 200% 100%;
+    animation: progress-shimmer 2.8s linear infinite;
+  }
+
+  .accordion-panel {
+    transform-origin: top;
   }
 }
 
@@ -171,6 +187,15 @@
   }
   75% {
     transform: translateX(5px);
+  }
+}
+
+@keyframes progress-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
   }
 }
 

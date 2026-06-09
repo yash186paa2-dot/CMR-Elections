@@ -1,7 +1,7 @@
 export const HOUSE_NAMES = [
   'Agni House',
   'Jal House',
-  'Bhoomi House',
+  'Prithvi House',
   'Vayu House',
 ] as const;
 
@@ -42,7 +42,7 @@ export const HOUSE_OPTIONS: HouseOption[] = [
     badge: 'bg-sky-100 text-sky-700 border-sky-200',
   },
   {
-    value: 'Bhoomi House',
+    value: 'Prithvi House',
     description: 'Steady growth, resilience, and grounded teamwork.',
     accent: 'from-emerald-500 via-green-500 to-lime-600',
     surface: 'from-emerald-50 via-white to-lime-50',

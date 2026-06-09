@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { X, CheckCircle2, Shield, Vote } from 'lucide-react';
+import { X, CheckCircle2, Shield, Vote, UserRound } from 'lucide-react';
 import type { Candidate } from '@/lib/supabase';
 
 type Props = {
@@ -49,23 +49,23 @@ export function VoteConfirmModal({ candidate, onConfirm, onCancel, loading }: Pr
         {/* Scrollable body — full portrait fits; buttons stay pinned below */}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
           <div className="px-4 py-4 sm:px-7 sm:py-6">
-            <div className="overflow-hidden rounded-2xl border-2 border-slate-200 bg-white shadow-md">
+            <div className="overflow-hidden rounded-2xl border-2 border-slate-100 bg-white shadow-md">
               {candidate.photo_url ? (
-                <div className="relative flex min-h-[300px] w-full items-center justify-center bg-gradient-to-b from-slate-100 via-slate-50 to-slate-100 sm:min-h-[380px]">
-                  <div className="relative h-[300px] w-full sm:h-[380px]">
+                <div className="relative flex min-h-[340px] w-full items-center justify-center bg-white sm:min-h-[420px]">
+                  <div className="relative h-[340px] w-full sm:h-[420px]">
                     <Image
                       src={candidate.photo_url}
                       alt={`Full photo of ${candidate.name}`}
                       fill
                       priority
-                      className="object-contain object-center"
+                      className="object-contain object-center p-2"
                       sizes="(max-width: 640px) 100vw, 560px"
                     />
                   </div>
                 </div>
               ) : (
-                <div className="flex min-h-[200px] items-center justify-center bg-gradient-to-b from-slate-100 to-slate-50">
-                  <p className="text-sm font-medium text-slate-400">No photo available</p>
+                <div className="flex min-h-[240px] items-center justify-center bg-slate-50">
+                  <UserRound className="h-20 w-20 text-slate-200" />
                 </div>
               )}
 
@@ -105,13 +105,13 @@ export function VoteConfirmModal({ candidate, onConfirm, onCancel, loading }: Pr
         </div>
 
         {/* Actions — always visible */}
-        <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-7 sm:py-5">
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:gap-3">
+        <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-6 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-8 sm:py-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:gap-4">
             <button
               type="button"
               onClick={onCancel}
               disabled={loading}
-              className="order-2 min-h-12 w-full rounded-xl border-2 border-slate-200 bg-white px-4 text-base font-semibold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:opacity-50 sm:order-1 sm:min-h-14 sm:flex-1"
+              className="order-2 min-h-[56px] w-full rounded-2xl border-2 border-slate-200 bg-white px-6 text-base font-bold text-slate-600 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50 sm:order-1 sm:flex-1"
             >
               Go back
             </button>
@@ -119,17 +119,17 @@ export function VoteConfirmModal({ candidate, onConfirm, onCancel, loading }: Pr
               type="button"
               onClick={onConfirm}
               disabled={loading}
-              className="order-1 min-h-[3.25rem] w-full rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 px-4 text-base font-black uppercase tracking-wide text-white shadow-lg shadow-emerald-900/25 transition-all hover:from-emerald-700 hover:to-emerald-800 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:opacity-70 sm:order-2 sm:min-h-14 sm:flex-[1.35]"
+              className="order-1 min-h-[56px] w-full rounded-2xl bg-[#002B5B] px-8 text-lg font-black uppercase tracking-wider text-white shadow-xl shadow-blue-900/20 transition-all hover:bg-[#003a7a] active:scale-[0.98] disabled:opacity-70 sm:order-2 sm:flex-[1.5]"
             >
               {loading ? (
-                <span className="flex items-center justify-center gap-2 normal-case tracking-normal">
+                <span className="flex items-center justify-center gap-3 normal-case tracking-normal">
                   <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Submitting your vote…
+                  Submitting Vote…
                 </span>
               ) : (
-                <span className="flex items-center justify-center gap-2.5">
+                <span className="flex items-center justify-center gap-3">
                   <Vote className="h-5 w-5 shrink-0" aria-hidden />
-                  Confirm vote
+                  Confirm & Submit
                 </span>
               )}
             </button>

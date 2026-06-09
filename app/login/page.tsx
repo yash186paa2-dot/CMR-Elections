@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
@@ -143,7 +144,14 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-md px-4">
         <div className="text-center mb-10 animate-fade-in-up">
           <div className="text-center mb-6">
-            <img src="/logo.png" alt="CMR Logo" className="w-40 mx-auto" />
+            <Image
+              src="/logo.png"
+              alt="CMR Logo"
+              width={160}
+              height={160}
+              className="w-40 mx-auto object-contain"
+              priority
+            />
           </div>
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
             CMR Elections

@@ -61,9 +61,9 @@ export function VoteSuccessModal({ candidate, onDismiss }: Props) {
         <button
           type="button"
           onClick={onDismiss}
-          className="mt-8 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-base font-bold text-white shadow-lg transition-all hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 active:scale-[0.98]"
+          className="mt-10 flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] bg-[#002B5B] px-8 text-lg font-black uppercase tracking-wide text-white shadow-[0_12px_24px_-8px_rgba(0,43,91,0.4)] transition-all hover:-translate-y-0.5 hover:bg-[#003a7a] active:scale-[0.98]"
         >
-          Return to ballot
+          <span>Return to Ballot</span>
           <ArrowRight className="h-5 w-5" aria-hidden />
         </button>
       </div>

@@ -3,7 +3,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { BarChart2, CheckCircle2, LogOut, Shield, Vote as VoteIcon } from 'lucide-react';
+import {
+  ArrowRight,
+  BarChart2,
+  Briefcase,
+  Circle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Crown,
+  FileText,
+  GraduationCap,
+  Lock,
+  LogOut,
+  MapPin,
+  Shield,
+  Sparkles,
+  Wallet,
+  type LucideIcon,
+  Vote as VoteIcon,
+} from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { CandidateCard } from '@/components/candidate-card';
 import { ErrorModal } from '@/components/error-modal';
@@ -11,6 +30,7 @@ import { VoteConfirmModal } from '@/components/vote-confirm-modal';
 import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { fetchCandidates } from '@/lib/candidates';
 import { supabase, type Candidate, type Vote } from '@/lib/supabase';
+import { HOUSE_OPTIONS_BY_VALUE, isCandidateHouse, type CandidateHouse } from '@/lib/houses';
 
 type SupabaseErrorLike = {
   code?: string;
@@ -22,6 +42,13 @@ type SupabaseErrorLike = {
 type PositionGroup = {
   position: string;
   candidates: Candidate[];
+};
+
+type PositionVisual = {
+  icon: LucideIcon;
+  tint: string;
+  surface: string;
+  border: string;
 };
 
 function getDisplayName(user: { email?: string | null; user_metadata?: Record<string, unknown> } | null) {
@@ -93,11 +120,64 @@ function groupCandidatesByPosition(candidates: Candidate[]) {
     })) satisfies PositionGroup[];
 }
 
+function getPositionVisual(position: string): PositionVisual {
+  const normalized = position.toLowerCase();
+
+  // Premium Dark Navy Blue theme for all positions as requested
+  if (normalized.includes('president') || normalized.includes('head')) {
+    return {
+      icon: Crown,
+      tint: 'text-amber-400',
+      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+      border: 'border-amber-400/30',
+    };
+  }
+
+  if (normalized.includes('vice')) {
+    return {
+      icon: GraduationCap,
+      tint: 'text-blue-300',
+      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+      border: 'border-blue-400/30',
+    };
+  }
+
+  if (normalized.includes('secretary')) {
+    return {
+      icon: FileText,
+      tint: 'text-blue-300',
+      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+      border: 'border-blue-400/30',
+    };
+  }
+
+  if (normalized.includes('treasurer')) {
+    return {
+      icon: Wallet,
+      tint: 'text-blue-300',
+      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+      border: 'border-blue-400/30',
+    };
+  }
+
+  return {
+    icon: Briefcase,
+    tint: 'text-blue-300',
+    surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+    border: 'border-blue-400/30',
+  };
+}
+
+function getNextPendingPosition(candidateGroups: PositionGroup[], completedPositions: Set<string>) {
+  return candidateGroups.find((group) => !completedPositions.has(group.position))?.position ?? null;
+}
+
 export default function HomePage() {
   const { user, loading, signOut, isAdmin, isGuest } = useAuth();
   const router = useRouter();
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [studentHouse, setStudentHouse] = useState<string | null>(null);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Record<string, string>>({});
   const [dataLoading, setDataLoading] = useState(true);
@@ -106,6 +186,10 @@ export default function HomePage() {
   const [successCandidate, setSuccessCandidate] = useState<Candidate | null>(null);
   const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
   const [openPosition, setOpenPosition] = useState<string | null>(null);
+  const [hasStartedVoting, setHasStartedVoting] = useState(false);
+  const [isReviewScreenOpen, setIsReviewScreenOpen] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
+
   useEffect(() => {
     if (!loading && !user && !isGuest) {
       router.replace('/login');
@@ -147,7 +231,30 @@ export default function HomePage() {
         throw new Error(buildBallotErrorMessage('Vote history query', votesRes.error));
       }
 
-      setCandidates(candidatesRes.data ?? []);
+      let filteredCandidates = candidatesRes.data ?? [];
+      let currentStudentHouse: string | null = null;
+      
+      // Automatically detect house from database for any authenticated user
+      if (user) {
+        const { data: studentData } = await supabase
+          .from('students')
+          .select('class')
+          .eq('auth_user_id', user.id)
+          .maybeSingle();
+        
+        currentStudentHouse = studentData?.class ?? null;
+      } else if (isGuest) {
+        // Default house for guest preview
+        currentStudentHouse = 'Agni House';
+      }
+
+      // Strict Filtering: Show General candidates ('None') and ONLY student's house candidates
+      filteredCandidates = filteredCandidates.filter(
+        c => c.house === 'None' || (currentStudentHouse && c.house === currentStudentHouse)
+      );
+
+      setCandidates(filteredCandidates);
+      setStudentHouse(currentStudentHouse);
       setVotes(votesRes.data ?? []);
     } catch (err) {
       console.error('Data loading error:', err);
@@ -167,19 +274,58 @@ export default function HomePage() {
   }, [fetchData, isGuest, user]);
 
   const candidateGroups = useMemo(() => groupCandidatesByPosition(candidates), [candidates]);
-  useEffect(() => {
-  if (candidateGroups.length > 0 && !openPosition) {
-    setOpenPosition(candidateGroups[0].position);
-  }
-}, [candidateGroups, openPosition]);
   const votesByPosition = useMemo(() => new Map(votes.map((vote) => [vote.position, vote])), [votes]);
   const votedCandidateIds = useMemo(() => new Set(votes.map((vote) => vote.candidate_id)), [votes]);
+  const totalPositions = candidateGroups.length;
+  const completedPositions = votesByPosition.size;
+  const progressPercentage = totalPositions === 0 ? 0 : Math.round((completedPositions / totalPositions) * 100);
+  const firstPendingPosition = useMemo(
+    () => getNextPendingPosition(candidateGroups, new Set(votesByPosition.keys())),
+    [candidateGroups, votesByPosition]
+  );
+  const allPositionsCompleted = totalPositions > 0 && completedPositions === totalPositions;
+
+  useEffect(() => {
+    if (candidateGroups.length > 0 && !openPosition) {
+      setOpenPosition(firstPendingPosition ?? candidateGroups[0].position);
+    }
+  }, [candidateGroups, firstPendingPosition, openPosition]);
+
+  useEffect(() => {
+    if (!candidateGroups.length || !openPosition) {
+      return;
+    }
+
+    if (votesByPosition.has(openPosition) && firstPendingPosition) {
+      setOpenPosition(firstPendingPosition);
+    }
+  }, [candidateGroups.length, firstPendingPosition, openPosition, votesByPosition]);
+
   const votedCandidates = useMemo(
     () =>
       votes
         .map((vote) => candidates.find((candidate) => candidate.id === vote.candidate_id) ?? null)
         .filter((candidate): candidate is Candidate => candidate !== null),
     [candidates, votes]
+  );
+  const recordedSelections = useMemo(
+    () =>
+      candidateGroups
+        .map((group) => {
+          const recordedVote = votesByPosition.get(group.position);
+          if (!recordedVote) {
+            return null;
+          }
+
+          const candidate = candidates.find((item) => item.id === recordedVote.candidate_id) ?? null;
+          if (!candidate) {
+            return null;
+          }
+
+          return { position: group.position, candidate };
+        })
+        .filter((item): item is { position: string; candidate: Candidate } => item !== null),
+    [candidateGroups, candidates, votesByPosition]
   );
 
   const handleVoteConfirm = async () => {
@@ -208,6 +354,9 @@ export default function HomePage() {
 
     setVotingLoading(true);
     try {
+      const nextPendingPosition = candidateGroups.find(
+        (group) => group.position !== confirmCandidate.position && !votesByPosition.has(group.position)
+      )?.position;
       const { data, error } = await supabase
         .from('votes')
         .insert({
@@ -247,6 +396,9 @@ export default function HomePage() {
         )
       );
       setConfirmCandidate(null);
+      setOpenPosition(nextPendingPosition ?? null);
+      setHasStartedVoting(true);
+      setIsReviewScreenOpen(!nextPendingPosition);
     } catch (err) {
       console.error('Vote submission error:', err);
       setErrorModal({
@@ -325,49 +477,98 @@ export default function HomePage() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-4 sm:px-6 sm:pb-16 sm:pt-6">
-        <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-950 shadow-xl shadow-slate-900/10">
-          <div className="grid gap-0 lg:grid-cols-[1.3fr_0.9fr]">
-            <div className="px-5 py-6 sm:px-8 sm:py-8">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200">
+        <section className="glass-panel relative overflow-hidden rounded-[2rem] border border-white/70 px-5 py-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.4)] sm:px-8 sm:py-8">
+          <div className="absolute inset-x-8 top-0 h-32 rounded-full bg-gradient-to-r from-sky-200/60 via-violet-200/60 to-emerald-200/60 blur-3xl" />
+          <div className="relative grid gap-6 lg:grid-cols-[1.2fr_0.85fr]">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-700">
                 <Shield className="h-3.5 w-3.5" aria-hidden />
-                Official Election Ballot
+                Secure Student Ballot
               </div>
-              <h1 className="mt-4 max-w-2xl text-3xl font-black tracking-tight text-white sm:text-4xl">
-                Review candidates and cast one secure vote for each position.
+              <h1 className="mt-5 text-3xl font-black tracking-tight text-slate-950 sm:text-5xl">
+                CMR National PU College
               </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
-                The ballot reads directly from the live Supabase tables for candidates and votes.
-                Each authenticated voter can submit one vote per position.
+              <p className="mt-2 text-base font-semibold text-slate-700 sm:text-lg">
+                Student Council Elections 2026
               </p>
-            </div>
-
-            <div className="border-t border-white/10 bg-white/5 px-5 py-6 sm:px-8 lg:border-l lg:border-t-0">
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
+                A guided voting experience for first-time student voters. Browse one position at a
+                time, select your candidate, and confirm each vote with confidence.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Progress
+                  </p>
+                  <p className="mt-1 text-lg font-black text-slate-950">
+                    {completedPositions} / {totalPositions || 0}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                     Voter
                   </p>
-                  <p className="mt-1 text-lg font-bold text-white">
+                  <p className="mt-1 text-lg font-bold text-slate-950">
                     {isGuest ? 'Guest Preview' : getDisplayName(user)}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                      Positions
+                {studentHouse && (
+                  <div className={`rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50`}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Your House
                     </p>
-                    <p className="mt-2 text-base font-bold text-white">{candidateGroups.length}</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full bg-gradient-to-r ${isCandidateHouse(studentHouse) ? HOUSE_OPTIONS_BY_VALUE[studentHouse].accent : 'from-slate-400 to-slate-600'}`} />
+                      <p className="text-lg font-black text-slate-950">
+                        {studentHouse}
+                      </p>
+                    </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                      Vote Status
-                    </p>
-                    <p className="mt-2 text-base font-bold text-white">{votes.length} submitted</p>
-                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-slate-950 px-5 py-6 text-white shadow-xl shadow-slate-900/10">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(56,189,248,0.24),_transparent_42%),radial-gradient(circle_at_bottom_left,_rgba(168,85,247,0.22),_transparent_38%)]" />
+              <div className="relative">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  Premium Voting Flow
                 </div>
-                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">
-                  Duplicate voting is enforced at the database layer using the live `votes` table.
+                <p className="mt-4 text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  What Happens Next
+                </p>
+                <ul className="mt-4 space-y-3 text-sm text-slate-200">
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
+                      1
+                    </span>
+                    Start the guided ballot.
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
+                      2
+                    </span>
+                    Open one position at a time and choose a candidate.
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
+                      3
+                    </span>
+                    Confirm each selection and continue automatically.
+                  </li>
+                </ul>
+                <div className="mt-5 h-2 rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-sky-400 to-violet-400 transition-all duration-500"
+                    style={{ width: `${progressPercentage}%` }}
+                  />
                 </div>
+                <p className="mt-3 text-sm text-slate-300">
+                  {allPositionsCompleted
+                    ? 'All positions are complete. Review your submitted ballot summary below.'
+                    : `${Math.max(totalPositions - completedPositions, 0)} position${Math.max(totalPositions - completedPositions, 0) === 1 ? '' : 's'} remaining.`}
+                </p>
               </div>
             </div>
           </div>
@@ -399,140 +600,587 @@ export default function HomePage() {
           </div>
         ) : (
           <>
-            {votes.length > 0 && votedCandidates.length > 0 && (
-              <section className="mt-6 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                      Votes recorded
+            {!hasStartedVoting && !isReviewScreenOpen ? (
+              <section className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Election Home
+                  </p>
+                  <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+                    Start your guided ballot
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
+                    Candidates are grouped by position so you only see one decision at a time.
+                    This keeps the ballot focused, mobile-friendly, and easy to complete.
+                  </p>
+                  <div className="mt-6 rounded-[1.5rem] border border-slate-200/80 bg-slate-50/80 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Progress
                     </p>
-                    <h3 className="mt-1 text-xl font-bold text-emerald-950">
-                      {votes.length} position{votes.length === 1 ? '' : 's'} submitted
-                    </h3>
-                    <p className="mt-2 text-sm text-emerald-800">
-                      You can continue voting in any remaining positions that have not been submitted.
+                    <p className="mt-2 text-2xl font-black text-slate-950">
+                      {completedPositions} / {totalPositions || 0} Positions Completed
+                    </p>
+                    <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
+                      <div
+                        className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+                        style={{ width: `${progressPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHasStartedVoting(true);
+                        setIsReviewScreenOpen(false);
+                        if (!openPosition) {
+                          setOpenPosition(firstPendingPosition ?? candidateGroups[0]?.position ?? null);
+                        }
+                      }}
+                      className="flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] bg-[#002B5B] px-8 text-lg font-black uppercase tracking-wide text-white shadow-[0_12px_24px_-8px_rgba(0,43,91,0.4)] transition-all hover:-translate-y-0.5 hover:bg-[#003a7a] active:scale-[0.98]"
+                    >
+                      <span>{completedPositions > 0 ? 'Continue Guided Ballot' : 'Start Guided Ballot'}</span>
+                      <ArrowRight className="h-5 w-5" aria-hidden />
+                    </button>
+                    <p className="mt-4 text-center text-xs font-semibold uppercase tracking-widest text-slate-400">
+                      Guided step-by-step experience
                     </p>
                   </div>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-800">
-                    <CheckCircle2 className="h-4 w-4" aria-hidden />
-                    {votes.length} submitted
+                </div>
+
+                <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Position Overview
+                  </p>
+                  <div className="mt-5 space-y-3">
+                    {candidateGroups.map((group) => {
+                      const visual = getPositionVisual(group.position);
+                      const Icon = visual.icon;
+                      const isCompleted = votesByPosition.has(group.position);
+
+                      return (
+                        <div
+                          key={group.position}
+                          className={`rounded-[1.35rem] border bg-gradient-to-br ${visual.surface} ${visual.border} px-4 py-4 shadow-sm`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/80 bg-white/80 shadow-sm">
+                              <Icon className={`h-5 w-5 ${visual.tint}`} aria-hidden />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-base font-semibold text-white">
+                                {group.position}
+                              </p>
+                              <p className="text-xs text-blue-100">
+                                {group.candidates.length} Candidate
+                                {group.candidates.length === 1 ? '' : 's'}
+                              </p>
+                            </div>
+                            <div
+                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                                isCompleted
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-white text-[#001F3F]'
+                              }`}
+                            >
+                              {isCompleted ? 'Completed' : 'Not Voted'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </section>
-            )}
-
-            <section className="mt-6 space-y-5">
-              <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
-                <div className="h-2 bg-gradient-to-r from-slate-500 via-slate-600 to-slate-800" />
-                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-                  <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Election Ballot
-                    </p>
-                    <h2 className="mt-1 text-2xl font-bold text-slate-950">All open positions</h2>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                      Candidates are grouped by position using the live `candidates` table.
-                    </p>
+            ) : isReviewScreenOpen ? (
+              <section className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Review
+                      </p>
+                      <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+                        Review your selections
+                      </h2>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-base">
+                        This summary reflects the votes already recorded for each position.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsReviewScreenOpen(false);
+                        setHasStartedVoting(true);
+                      }}
+                      className="flex min-h-[44px] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]"
+                    >
+                      <ArrowRight className="h-4 w-4 rotate-180" aria-hidden />
+                      <span>Back to Ballot</span>
+                    </button>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Positions
-                    </p>
-                    <p className="mt-1 text-2xl font-black text-slate-950">{candidateGroups.length}</p>
+
+                  <div className="mt-6 space-y-4">
+                    {recordedSelections.map(({ position, candidate }) => (
+                      <div
+                        key={position}
+                        className="rounded-[1.5rem] border border-emerald-200/80 bg-white/80 p-4 shadow-sm shadow-emerald-100/50 sm:p-5"
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-200">
+                            {candidate.photo_url ? (
+                              <Image
+                                src={candidate.photo_url}
+                                alt={candidate.name}
+                                fill
+                                className="object-contain bg-slate-100"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                                <VoteIcon className="h-6 w-6 text-slate-400" aria-hidden />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                              {position}
+                            </p>
+                            <p className="mt-1 truncate text-lg font-bold text-slate-950">
+                              {candidate.name}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {candidate.department} · {candidate.year}
+                            </p>
+                          </div>
+                          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            <CheckCircle2 className="h-4 w-4" aria-hidden />
+                            Submitted
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
 
-              {candidateGroups.map((group) => {
-                const selectedCandidateId = selectedCandidateIds[group.position];
-                const selectedCandidate =
-                  group.candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
-                const votedForPosition = votesByPosition.get(group.position);
-
-                return (
-                  <section
-                    key={group.position}
-                    className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm"
-                  >
+                <aside className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Ballot Status
+                  </p>
+                  <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+                    {allPositionsCompleted ? 'Ballot completed' : 'Voting in progress'}
+                  </h3>
+                  <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-200/80">
                     <div
-                      onClick={() =>
-                        setOpenPosition(
-                          openPosition === group.position ? null : group.position
-                        )
-                      }
-                      className="mb-4 flex cursor-pointer flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Position
-                        </p>
-                        <h3 className="text-xl font-bold text-slate-950">
-                        {openPosition === group.position ? "▼" : "▶"} {group.position}
-                        ({group.candidates.length} Candidates)
-                      </h3>
-                      </div>
-                      <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700">
-                        {votedForPosition ? 'Vote submitted' : 'Select one candidate'}
-                      </div>
+                      className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500"
+                      style={{ width: `${progressPercentage}%` }}
+                    />
+                  </div>
+                  <p className="mt-4 text-sm font-semibold text-slate-700">
+                    {completedPositions} / {totalPositions || 0} positions completed
+                  </p>
+                  
+                  {allPositionsCompleted && (
+                    <div className="mt-8 space-y-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSuccessCandidate(recordedSelections[0]?.candidate);
+                        }}
+                        className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98]"
+                      >
+                        <CheckCircle2 className="h-6 w-6" aria-hidden />
+                        <span>Submit Final Ballot</span>
+                      </button>
+                      <p className="text-center text-xs font-medium text-slate-500">
+                        Your official ballot is ready for final submission
+                      </p>
                     </div>
-{openPosition === group.position && (
-  <>
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                      {group.candidates.map((candidate, index) => (
-                        <CandidateCard
-                          key={candidate.id}
-                          candidate={candidate}
-                          hasVoted={votesByPosition.has(candidate.position)}
-                          isVotedFor={
-                            votedCandidateIds.has(candidate.id) ||
-                            selectedCandidateIds[candidate.position] === candidate.id
-                          }
-                          onSelect={(nextCandidate) => {
-                            if (votesByPosition.has(nextCandidate.position)) return;
-                            setSelectedCandidateIds((current) => ({
-                              ...current,
-                              [nextCandidate.position]: nextCandidate.id,
-                            }));
-                          }}
-                          rank={index}
-                        />
-                      ))}
-                    </div>
-                      </>
-                    )}
+                  )}
 
-                    {openPosition === group.position && !votedForPosition && (
-                      <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-sm font-medium text-slate-700">
-                          {selectedCandidate
-                            ? `Selected: ${selectedCandidate.name}`
-                            : `Choose a candidate for ${group.position}`}
+                  <div className="mt-6 rounded-[1.5rem] border border-emerald-200 bg-emerald-50/50 p-5 text-sm leading-relaxed text-emerald-800">
+                    <div className="flex items-start gap-3">
+                      <Shield className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                      <p>
+                        Vote submission logic remains unchanged. Each confirmed position is recorded
+                        immediately and shown here as part of the final ballot summary.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              </section>
+            ) : (
+              <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="space-y-4">
+                  <div className="glass-panel rounded-[1.75rem] border border-white/70 p-5 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          Guided Ballot
                         </p>
+                        <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+                          Vote one position at a time
+                        </h2>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                          Only one accordion opens at a time, so the ballot stays focused and easy
+                          to use on mobile.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsReviewScreenOpen(true)}
+                        className="flex min-h-[44px] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]"
+                      >
+                        <FileText className="h-4 w-4" aria-hidden />
+                        <span>Review My Ballot</span>
+                      </button>
+                    </div>
+                  <div className="mt-5 rounded-[1.35rem] border border-slate-200/80 bg-white/85 p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Current Progress
+                          </p>
+                          <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+                            {completedPositions} / {totalPositions || 0} Positions Completed
+                          </p>
+                        </div>
+                        <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                          {progressPercentage}%
+                        </div>
+                      </div>
+                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
+                        <div
+                          className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+                          style={{ width: `${progressPercentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {candidateGroups.map((group) => {
+                    const visual = getPositionVisual(group.position);
+                    const Icon = visual.icon;
+                    const selectedCandidateId = selectedCandidateIds[group.position];
+                    const selectedCandidate =
+                      group.candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
+                    const votedForPosition = votesByPosition.get(group.position);
+                    const submittedCandidate =
+                      votedForPosition
+                        ? candidates.find((candidate) => candidate.id === votedForPosition.candidate_id) ?? null
+                        : null;
+                    const isOpen = openPosition === group.position && !isReviewScreenOpen;
+                    const isMissing = !votedForPosition && !isReviewScreenOpen && showValidationErrors;
+
+                    return (
+                      <section
+                        key={group.position}
+                        id={`position-${group.position.replace(/\s+/g, '-').toLowerCase()}`}
+                        className={`glass-panel overflow-hidden rounded-[1.75rem] border transition-all duration-500 ${
+                          isMissing && !selectedCandidate ? 'border-red-400 ring-4 ring-red-50 shadow-xl shadow-red-100/50' : 'border-white/70 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]'
+                        }`}
+                      >
                         <button
                           type="button"
-                          onClick={() => selectedCandidate && setConfirmCandidate(selectedCandidate)}
-                          disabled={!selectedCandidate || votingLoading}
-                          className={`flex min-h-11 items-center justify-center rounded-xl px-5 text-sm font-bold ${
-                            selectedCandidate
-                              ? 'bg-slate-950 text-white hover:bg-slate-800'
-                              : 'cursor-not-allowed bg-slate-300 text-slate-500'
+                          onClick={() => setOpenPosition(group.position)}
+                          className={`flex w-full items-start gap-4 px-4 py-4 text-left transition sm:px-6 sm:py-5 ${
+                            isOpen ? 'bg-white/80' : 'bg-white/65 hover:bg-white/85'
+                          }`}
+                          aria-expanded={isOpen}
+                        >
+                          <div
+                            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border bg-gradient-to-br shadow-sm ${visual.border} ${visual.surface}`}
+                          >
+                            <Icon className={`h-6 w-6 ${visual.tint}`} aria-hidden />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <h3 className={`text-xl font-black tracking-tight sm:text-2xl ${isOpen ? 'text-[#001F3F]' : 'text-slate-950'}`}>
+                                {group.position}
+                              </h3>
+                              {votedForPosition && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                                  Completed
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 text-sm font-medium text-slate-600">
+                              {group.candidates.length} candidate
+                              {group.candidates.length === 1 ? '' : 's'}
+                              {submittedCandidate ? ` · ${submittedCandidate.name} selected` : ''}
+                              {!submittedCandidate && selectedCandidate
+                                ? ` · ${selectedCandidate.name} selected`
+                                : ''}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            <div
+                              className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                votedForPosition
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : selectedCandidate
+                                    ? 'bg-sky-100 text-sky-700'
+                                    : isMissing ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-white/80 text-slate-600'
+                              }`}
+                            >
+                              {votedForPosition
+                                ? 'Voted'
+                                : selectedCandidate
+                                  ? 'Ready to confirm'
+                                  : isMissing ? 'Missing Vote' : 'Not Voted'}
+                            </div>
+                            <ChevronDown
+                              className={`h-5 w-5 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                              aria-hidden
+                            />
+                          </div>
+                        </button>
+
+                        <div
+                          className={`accordion-panel overflow-hidden border-t border-slate-200/70 bg-white/75 transition-all duration-300 ease-out ${
+                            isOpen ? 'max-h-[2200px] opacity-100' : 'max-h-0 opacity-0'
                           }`}
                         >
-                          Submit {group.position} vote
-                        </button>
+                          <div className="px-4 py-4 sm:px-6 sm:py-6">
+                            {votedForPosition && submittedCandidate ? (
+                              <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-900">
+                                <div className="flex items-start gap-3">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100">
+                                    <Check className="h-5 w-5 text-emerald-700" aria-hidden />
+                                  </div>
+                                  <div>
+                                    <p className="text-base font-bold">{group.position} completed</p>
+                                    <p className="mt-1 text-sm text-emerald-800">
+                                      Your recorded vote is <strong>{submittedCandidate.name}</strong>.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                                  {group.candidates.map((candidate, index) => (
+                                    <CandidateCard
+                                      key={candidate.id}
+                                      candidate={candidate}
+                                      hasVoted={votesByPosition.has(candidate.position)}
+                                      isVotedFor={
+                                        votedCandidateIds.has(candidate.id) ||
+                                        selectedCandidateIds[candidate.position] === candidate.id
+                                      }
+                                      onSelect={(nextCandidate) => {
+                                        if (votesByPosition.has(nextCandidate.position)) return;
+                                        setSelectedCandidateIds((current) => ({
+                                          ...current,
+                                          [nextCandidate.position]: nextCandidate.id,
+                                        }));
+                                      }}
+                                      rank={index}
+                                    />
+                                  ))}
+                                </div>
+
+                                <div className="sticky bottom-4 mt-6 animate-scale-in rounded-[1.5rem] border border-slate-200/80 bg-white/95 p-4 shadow-xl shadow-slate-200/60 backdrop-blur sm:p-5">
+                                  <div className="flex flex-col gap-4">
+                                    <div className="flex flex-col gap-1 px-1">
+                                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                        Current Selection
+                                      </p>
+                                      <p className="text-lg font-black text-slate-950">
+                                        {selectedCandidate
+                                          ? selectedCandidate.name
+                                          : `Choose a candidate for ${group.position}`}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => selectedCandidate && setConfirmCandidate(selectedCandidate)}
+                                      disabled={!selectedCandidate || votingLoading}
+                                      className={`flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-6 text-lg font-black uppercase tracking-wide transition-all duration-300 ${
+                                        selectedCandidate
+                                          ? 'bg-[#002B5B] text-white shadow-[0_12px_24px_-8px_rgba(0,43,91,0.4)] hover:-translate-y-0.5 hover:bg-[#003a7a] active:scale-[0.98]'
+                                          : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                                      }`}
+                                    >
+                                      {selectedCandidate ? (
+                                        <>
+                                          <VoteIcon className="h-5 w-5" aria-hidden />
+                                          <span>Submit Vote</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Lock className="h-5 w-5" aria-hidden />
+                                          <span>Select a Candidate</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+
+                <aside className="hidden xl:block">
+                  <div className="sticky top-24 space-y-4">
+                    <div className="glass-panel rounded-[1.75rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]">
+                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Voting Progress
+                      </p>
+                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
+                        <div
+                          className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+                          style={{ width: `${progressPercentage}%` }}
+                        />
                       </div>
-                    )}
-                  </section>
-                );
-              })}
-            </section>
+                      <p className="mt-3 text-2xl font-black text-slate-950">
+                        {completedPositions} / {totalPositions || 0}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">Positions completed</p>
+                      
+                      {!allPositionsCompleted && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowValidationErrors(true);
+                            if (completedPositions < totalPositions) {
+                              setErrorModal({
+                                title: 'Incomplete Ballot',
+                                message: 'Please vote for all required positions before submitting.',
+                              });
+                              // Find first missing position and scroll to it
+                              const missing = candidateGroups.find(g => !votesByPosition.has(g.position));
+                              if (missing) {
+                                setOpenPosition(missing.position);
+                                const el = document.getElementById(`position-${missing.position.replace(/\s+/g, '-').toLowerCase()}`);
+                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              }
+                              return;
+                            }
+                            setIsReviewScreenOpen(true);
+                          }}
+                          className="mt-6 flex min-h-[56px] w-full items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-6 text-base font-bold text-white shadow-lg transition-all hover:bg-[#003a7a] active:scale-[0.98]"
+                        >
+                          <FileText className="h-5 w-5" />
+                          Submit Your Vote
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="glass-panel rounded-[1.75rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]">
+                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Next Up
+                      </p>
+                      <p className="mt-2 text-lg font-bold text-slate-950">
+                        {firstPendingPosition ?? 'All positions completed'}
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              </section>
+            )}
           </>
         )}
 
-        <footer className="mt-8 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
-          <p className="text-xs font-medium text-slate-600">
-            Election Management System | Designed & Developed by Yeshwanth B
-          </p>
+        {hasStartedVoting && totalPositions > 0 && (
+          <div className="fixed inset-x-0 bottom-0 z-40 bg-white/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-20px_40px_-15px_rgba(15,23,42,0.1)] backdrop-blur-md xl:hidden">
+            <div className="mx-auto max-w-lg">
+              {!isReviewScreenOpen && (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                      Voting Progress
+                    </p>
+                    <p className="text-xs font-bold text-slate-900">
+                      {completedPositions} / {totalPositions || 0} completed
+                    </p>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+                      style={{ width: `${progressPercentage}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {allPositionsCompleted ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReviewScreenOpen(true);
+                    setSuccessCandidate(null); // Clear any individual success modal
+                  }}
+                  className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98]"
+                >
+                  <CheckCircle2 className="h-6 w-6" aria-hidden />
+                  <span>Submit Final Ballot</span>
+                </button>
+              ) : (
+                <div className="flex gap-3">
+                  {!isReviewScreenOpen && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowValidationErrors(true);
+                        if (completedPositions < totalPositions) {
+                          setErrorModal({
+                            title: 'Incomplete Ballot',
+                            message: 'Please vote for all required positions before submitting.',
+                          });
+                          const missing = candidateGroups.find(g => !votesByPosition.has(g.position));
+                          if (missing) {
+                            setOpenPosition(missing.position);
+                            const el = document.getElementById(`position-${missing.position.replace(/\s+/g, '-').toLowerCase()}`);
+                            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }
+                          return;
+                        }
+                        setIsReviewScreenOpen(true);
+                      }}
+                      className="flex min-h-[56px] flex-1 items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-6 text-base font-bold text-white shadow-lg active:scale-[0.98]"
+                    >
+                      <FileText className="h-5 w-5" />
+                      <span>Submit Your Vote</span>
+                    </button>
+                  )}
+                  {isReviewScreenOpen && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReviewScreenOpen(false)}
+                      className="flex min-h-[56px] flex-1 items-center justify-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-6 text-base font-bold text-slate-700 shadow-sm active:scale-[0.98]"
+                    >
+                      <ArrowRight className="h-5 w-5 rotate-180" />
+                      <span>Back to Ballot</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <footer className="mt-20 border-t border-slate-200 pt-10 pb-16 text-center">
+          <div className="mx-auto max-w-xs">
+            <div className="mb-4 flex justify-center gap-4 opacity-30">
+              <div className="h-px w-10 bg-slate-900" />
+              <Shield className="h-4 w-4 text-slate-900" />
+              <div className="h-px w-10 bg-slate-900" />
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+              Official Election Platform
+            </p>
+            <p className="mt-3 text-sm font-medium text-slate-600">
+              Designed & Developed by <span className="text-slate-900 font-bold">Yeshwanth B</span>
+            </p>
+            <p className="mt-1 text-[10px] text-slate-400">
+              © 2026 CMR National PU College. All rights reserved.
+            </p>
+          </div>
         </footer>
       </main>
 

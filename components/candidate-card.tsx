@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   UserRound,
+  MapPin,
 } from 'lucide-react';
 import type { Candidate } from '@/lib/supabase';
 
@@ -23,78 +24,98 @@ type Props = {
 
 function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, rank = 0 }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const isSubmittedChoice = hasVoted && isVotedFor;
+  const isActiveSelection = !hasVoted && isVotedFor;
 
   return (
     <article
-      className={`candidate-card relative flex flex-col overflow-hidden rounded-xl border-2 bg-white transition-all duration-300 ease-out ${
-        isVotedFor
-          ? 'scale-[1.02] border-emerald-300 bg-emerald-50 shadow-lg ring-2 ring-emerald-200'
-          : hasVoted
-            ? 'border-slate-200 opacity-60'
-            : 'border-slate-200 hover:border-slate-300 cursor-pointer'
+      className={`candidate-card relative flex flex-col overflow-hidden rounded-[2.5rem] border transition-all duration-500 ease-out ${
+        isSubmittedChoice
+          ? 'border-emerald-500 bg-emerald-50 shadow-lg ring-2 ring-emerald-500/20'
+          : isActiveSelection
+            ? 'scale-[1.02] border-emerald-500 bg-[#e6f9f0] shadow-[0_20px_50px_-12px_rgba(16,185,129,0.35)] ring-4 ring-emerald-500/30'
+            : hasVoted
+              ? 'border-slate-200 opacity-50'
+              : 'cursor-pointer border-slate-200 bg-white hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl'
       }`}
       onClick={() => !hasVoted && onSelect(candidate)}
+      onKeyDown={(event) => {
+        if (hasVoted) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(candidate);
+        }
+      }}
+      role="button"
+      tabIndex={hasVoted ? -1 : 0}
     >
-      <div className="relative aspect-square w-full overflow-hidden bg-gradient-to-b from-slate-100 to-slate-200">
-        {candidate.photo_url ? (
+      {/* 90% Photo Fill Section */}
+      <div className="relative aspect-[3/4.5] w-full overflow-hidden">
+        {candidate.photo_url && candidate.photo_url.length > 0 ? (
           <Image
             src={candidate.photo_url}
-            alt={`Portrait of ${candidate.name}`}
+            alt={candidate.name}
             fill
-            priority={rank < 2}
-            loading={rank < 2 ? 'eager' : 'lazy'}
-            className={`object-cover object-[center_20%] ${
-              isVotedFor ? 'brightness-105' : ''
-            }`}
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            className="object-cover object-top"
+            priority={rank < 4}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-100">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm">
-              <UserRound className="h-8 w-8 text-slate-400" aria-hidden />
-            </div>
+          <div className="flex h-full w-full items-center justify-center bg-slate-100">
+            <UserRound className="h-20 w-20 text-slate-300" />
           </div>
         )}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent" />
-        
-        {/* Radio button indicator */}
-        <div className="absolute top-2 right-2 z-10">
+
+        {/* Selection Status Overlay */}
+        <div className="absolute top-4 right-4 z-10">
           <div
-            className={`flex h-8 w-8 items-center justify-center rounded-full border-2 transition-all duration-300 ${
+            className={`flex h-12 w-12 items-center justify-center rounded-full border-2 transition-all duration-500 ${
               isVotedFor
-                ? 'border-emerald-500 bg-emerald-500 shadow-md shadow-emerald-200'
-                : 'border-white/80 bg-white/60'
+                ? 'border-emerald-500 bg-emerald-500 text-white shadow-[0_8px_16px_-4px_rgba(16,185,129,0.4)]'
+                : 'border-white/40 bg-black/20 text-white backdrop-blur-md'
             }`}
           >
             {isVotedFor && (
-              <CheckCircle2 className="h-5 w-5 text-white animate-in zoom-in duration-300" aria-hidden />
+              <CheckCircle2 className="h-7 w-7 animate-in zoom-in duration-300" aria-hidden />
             )}
           </div>
         </div>
 
-        <div className="absolute bottom-2 left-2 right-2">
-          <h3 className="text-sm font-bold leading-tight text-white drop-shadow-md sm:text-base">
+        {/* Bottom Info Gradient Overlay */}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-5 pt-16">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">
+            {candidate.position}
+          </p>
+          <h3 className="mt-1 text-xl font-black leading-tight tracking-tight text-white sm:text-2xl">
             {candidate.name}
           </h3>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {candidate.house && candidate.house !== 'None' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
+                <MapPin className="h-2.5 w-2.5" />
+                {candidate.house}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col p-3">
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
-            {candidate.position}
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
+      {/* Details Section */}
+      <div className="flex flex-1 flex-col p-5">
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700">
             <Briefcase className="h-3 w-3 shrink-0 text-slate-500" aria-hidden />
             {candidate.department}
           </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
+          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700">
             <GraduationCap className="h-3 w-3 shrink-0 text-slate-500" aria-hidden />
             {candidate.year}
           </span>
         </div>
 
-        <p className="mb-2 text-xs leading-relaxed text-slate-700 line-clamp-2">{candidate.bio}</p>
+        <p className="mb-4 line-clamp-2 text-sm leading-relaxed text-slate-700">
+          {candidate.bio}
+        </p>
 
         <button
           type="button"
@@ -102,20 +123,14 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
             e.stopPropagation();
             setExpanded(!expanded);
           }}
-          className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 active:bg-slate-200 min-h-[36px] sm:min-h-0 sm:py-1.5"
-          aria-expanded={expanded}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 py-3 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-100 active:bg-slate-200"
         >
-          <BookOpen className="h-3 w-3 shrink-0" aria-hidden />
-          {expanded ? 'Hide' : 'Manifesto'}
-          {expanded ? (
-            <ChevronUp className="h-3 w-3 shrink-0" aria-hidden />
-          ) : (
-            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
-          )}
+          <BookOpen className="h-4 w-4" />
+          {expanded ? 'Hide Manifesto' : 'Read Manifesto'}
         </button>
 
         {expanded && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs leading-relaxed text-slate-800">
+          <div className="animate-fade-in mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-800">
             {candidate.manifesto}
           </div>
         )}
