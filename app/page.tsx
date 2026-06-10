@@ -232,21 +232,9 @@ export default function HomePage() {
       }
 
       const settingsMap = new Map((data ?? []).map((item) => [item.key, item.value]));
-      const missingSettings = settingKeys
-        .filter((key) => !settingsMap.has(key))
-        .map((key) => ({ key, value: TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS] }));
-
-      if (missingSettings.length > 0) {
-        const { error: seedError } = await supabase
-          .from('election_settings')
-          .upsert(missingSettings, { onConflict: 'key' });
-
-        if (seedError) {
-          console.error('Error seeding timer settings:', seedError);
-        } else {
-          for (const setting of missingSettings) {
-            settingsMap.set(setting.key, setting.value);
-          }
+      for (const key of settingKeys) {
+        if (!settingsMap.has(key)) {
+          settingsMap.set(key, TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS]);
         }
       }
 
@@ -318,14 +306,12 @@ export default function HomePage() {
         user
           ? supabase
               .from('students')
-              .select('class, has_voted')
+              .select('*')
               .eq('auth_user_id', user.id)
-              .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
       ]);
-          console.log('STUDENT RES:', studentRes);
-          console.log('STUDENT DATA:', studentRes?.data);
-          console.log('STUDENT ERROR:', studentRes?.error);
+      const studentRow = Array.isArray(studentRes?.data) ? studentRes.data[0] ?? null : studentRes?.data ?? null;
+
       if (candidatesRes.error) {
         throw new Error(buildBallotErrorMessage('Candidate query', candidatesRes.error));
       }
@@ -334,18 +320,12 @@ export default function HomePage() {
         throw new Error(buildBallotErrorMessage('Vote history query', votesRes.error));
       }
 
-// if (user && studentRes.data?.ballot_submitted) {
-//   router.push('/thank-you');
-//   return;
-// }
-
       let filteredCandidates = candidatesRes.data ?? [];
       let currentStudentHouse: string | null = forcedHouse || null;
       
       // Database is the single source of truth for authenticated users
-      if (user && studentRes.data?.class) {
-        console.log('CLASS FROM DB:', studentRes.data?.class);
-        currentStudentHouse = studentRes.data.class;
+      if (user && studentRow?.class) {
+        currentStudentHouse = studentRow.class;
         // Sync localStorage
         if (currentStudentHouse) {
           const key = `selectedHouse_${user.id}`;
@@ -359,13 +339,8 @@ export default function HomePage() {
 
       // If authenticated but no house selected in DB or localStorage, show selection screen
       if (user && !currentStudentHouse) {
-        console.log("No house found, showing selection screen: true");
         setIsSelectingHouse(true);
       } else {
-        console.log("House identified, showing selection screen: false");
-        console.log('HIDING HOUSE SCREEN');
-console.log('currentStudentHouse =', currentStudentHouse);
-console.log('selectedHouse state before =', selectedHouse);
         setIsSelectingHouse(false);
         
         // Default for guests if no house selected
@@ -455,73 +430,42 @@ console.log('selectedHouse state before =', selectedHouse);
   );
 
   const handleHouseSelect = async (house: string) => {
-    console.log('CONFIRM CLICKED');
-    console.log('HOUSE TO SAVE:', house);
-    console.log('USER:', user);
-    console.log('STARTING HOUSE SAVE');
-    console.log('HOUSE SELECTED:', house);
-    
     if (user) {
       try {
         setVotingLoading(true);
-        // Check if student record already exists
         const fetchResult = await supabase
           .from('students')
-          .select('id, class, has_voted')
+          .select('id, class')
           .eq('auth_user_id', user.id)
           .maybeSingle();
-        
-        console.log('QUERY RESULT (fetch student):', fetchResult);
+
         const { data: existing, error: fetchError } = fetchResult;
 
         if (fetchError) throw fetchError;
+        if (!existing) throw new Error('Student record not found for authenticated user.');
 
-        if (existing) {
-          if (existing.class && existing.class !== '') {
-            setErrorModal({
-              title: 'House Already Selected',
-              message: 'You have already selected a house. Changing house selection is not permitted.',
-            });
-            void fetchData(existing.class);
-            console.log('RETURNING HERE (already selected)');
-            return;
-          }
-          // Update existing record
+        const finalHouse = existing.class && existing.class !== '' ? existing.class : house;
+
+        if (!existing.class || existing.class === '') {
           const updateResult = await supabase
             .from('students')
             .update({ class: house })
             .eq('auth_user_id', user.id);
-          
-          console.log('QUERY RESULT (update student):', updateResult);
-          if (updateResult.error) throw updateResult.error;
-        } else {
-          // Insert new record
-          const insertResult = await supabase
-            .from('students')
-            .insert({
-              auth_user_id: user.id,
-              class: house,
-              name: user.user_metadata?.name || '',
-              roll_no: user.user_metadata?.roll_no || null,
-              dob: user.user_metadata?.dob || null,
-            });
 
-          console.log('QUERY RESULT (insert student):', insertResult);
-          if (insertResult.error) throw insertResult.error;
+          if (updateResult.error) throw updateResult.error;
         }
 
         // Save selected house in localStorage
         const key = `selectedHouse_${user.id}`;
-        localStorage.setItem(key, house);
+        localStorage.setItem(key, finalHouse);
         
         // Update React state
-        setSelectedHouse(house);
+        setSelectedHouse(finalHouse);
         setIsSelectingHouse(false);
         setHouseToConfirm(null);
 
         // Immediately continue to the voting page
-        console.log('REDIRECTING TO BALLOT');
-        void fetchData(house);
+        await fetchData(finalHouse);
       } catch (err) {
         console.error('House selection error:', err);
         setErrorModal({
@@ -538,8 +482,7 @@ console.log('selectedHouse state before =', selectedHouse);
       setSelectedHouse(house);
       setIsSelectingHouse(false);
       setHouseToConfirm(null);
-      console.log('REDIRECTING TO BALLOT (guest)');
-      void fetchData(house);
+      await fetchData(house);
     }
   };
 
