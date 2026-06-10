@@ -12,19 +12,19 @@ ALTER TABLE public.candidates DROP CONSTRAINT IF EXISTS candidates_house_check;
 ALTER TABLE public.candidates DROP CONSTRAINT IF EXISTS candidates_house_check_v2;
 ALTER TABLE public.candidates
   ADD CONSTRAINT candidates_house_check
-  CHECK (house IN ('None', 'Agni House', 'Jal House', 'Prithvi House', 'Vayu House'));
+  CHECK (house IN ('None', 'Agni House', 'Jal House', 'Bhoomi House', 'Vayu House'));
 
 -- 4. Update votes check constraint
 ALTER TABLE public.votes DROP CONSTRAINT IF EXISTS votes_house_check;
 ALTER TABLE public.votes
   ADD CONSTRAINT votes_house_check
-  CHECK (house IS NULL OR house IN ('Agni House', 'Jal House', 'Prithvi House', 'Vayu House'));
+  CHECK (house IS NULL OR house IN ('Agni House', 'Jal House', 'Bhoomi House', 'Vayu House'));
 
 -- 5. Add check constraint to students class (house)
 ALTER TABLE public.students DROP CONSTRAINT IF EXISTS students_class_check;
 ALTER TABLE public.students
   ADD CONSTRAINT students_class_check
-  CHECK (class IN ('Agni House', 'Jal House', 'Prithvi House', 'Vayu House'));
+  CHECK (class IN ('Agni House', 'Jal House', 'Bhoomi House', 'Vayu House'));
 
 -- 6. Create function to validate house-based voting
 CREATE OR REPLACE FUNCTION public.validate_house_vote()

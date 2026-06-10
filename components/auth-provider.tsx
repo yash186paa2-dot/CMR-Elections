@@ -183,6 +183,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    if (user) {
+      localStorage.removeItem(`selectedHouse_${user.id}`);
+    }
     setIsGuest(false);
     setIsAdmin(false);
     await supabase.auth.signOut();

@@ -5,7 +5,8 @@ import { AuthProvider } from '@/components/auth-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
-export const metadata = {
+export const metadata: Metadata = {
+  metadataBase: new URL('http://localhost:3000'),
   title: 'CMR Elections',
   description: 'CMR National PU College Student Council Elections',
   openGraph: {

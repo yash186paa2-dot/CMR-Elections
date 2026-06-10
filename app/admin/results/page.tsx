@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
 import { supabase, type Candidate, type Vote } from '@/lib/supabase';
 import { fetchCandidates } from '@/lib/candidates';
-import { BarChart3, TrendingUp, Users, Download, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, Download, AlertCircle, CheckCircle2, Filter } from 'lucide-react';
+import { HOUSE_NAMES } from '@/lib/houses';
 
 type VoteStats = {
   candidateId: string;
@@ -12,12 +13,14 @@ type VoteStats = {
   position: string;
   voteCount: number;
   percentage: number;
+  house: string;
 };
 
 export default function ResultsPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [houseFilter, setHouseFilter] = useState<string>('All');
 
   useEffect(() => {
     let active = true;
@@ -65,9 +68,11 @@ export default function ResultsPage() {
         position: candidate.position,
         voteCount: candidate.vote_count,
         percentage: totalVotes > 0 ? (candidate.vote_count / totalVotes) * 100 : 0,
+        house: candidate.house || 'None',
       }))
+      .filter((stat) => houseFilter === 'All' || stat.house === houseFilter || stat.house === 'None')
       .sort((a, b) => b.voteCount - a.voteCount || a.position.localeCompare(b.position));
-  }, [candidates, totalVotes]);
+  }, [candidates, totalVotes, houseFilter]);
 
   const statsByPosition = useMemo(() => {
     const grouped = new Map<string, VoteStats[]>();
@@ -85,10 +90,11 @@ export default function ResultsPage() {
 
   const downloadResults = () => {
     const csv = [
-      ['Position', 'Candidate', 'Votes', 'Percentage'],
+      ['Position', 'Candidate', 'House', 'Votes', 'Percentage'],
       ...allStats.map((stat) => [
         stat.position,
         stat.candidateName,
+        stat.house,
         stat.voteCount,
         `${stat.percentage.toFixed(2)}%`,
       ]),
@@ -97,13 +103,14 @@ export default function ResultsPage() {
       ['Total Votes', totalVotes],
       ['Unique Voters', uniqueVoters],
       ['Positions', totalPositions],
+      ['House Filter', houseFilter],
     ]
       .map((row) => row.join(','))
       .join('\n');
 
     const element = document.createElement('a');
     element.setAttribute('href', `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`);
-    element.setAttribute('download', `voting-results-${new Date().toISOString().split('T')[0]}.csv`);
+    element.setAttribute('download', `voting-results-${houseFilter}-${new Date().toISOString().split('T')[0]}.csv`);
     element.style.display = 'none';
     document.body.appendChild(element);
     element.click();
@@ -118,13 +125,30 @@ export default function ResultsPage() {
             <h1 className="text-3xl font-bold text-slate-900">Election Results</h1>
             <p className="mt-1 text-slate-500">Live vote totals from the actual `votes` table</p>
           </div>
-          <button
-            onClick={downloadResults}
-            className="flex items-center gap-2 rounded-xl bg-slate-100 px-6 py-3 font-semibold text-slate-900 transition-colors hover:bg-slate-200"
-          >
-            <Download className="h-5 w-5" />
-            Export as CSV
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2">
+              <Filter className="h-4 w-4 text-slate-400" />
+              <select
+                value={houseFilter}
+                onChange={(e) => setHouseFilter(e.target.value)}
+                className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none"
+              >
+                <option value="All">All Houses</option>
+                {HOUSE_NAMES.map((house) => (
+                  <option key={house} value={house}>
+                    {house}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={downloadResults}
+              className="flex items-center gap-2 rounded-xl bg-slate-100 px-6 py-3 font-semibold text-slate-900 transition-colors hover:bg-slate-200"
+            >
+              <Download className="h-5 w-5" />
+              Export CSV
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">

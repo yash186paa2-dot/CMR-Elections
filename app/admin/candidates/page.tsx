@@ -422,9 +422,6 @@ export default function CandidatesManagementPage() {
                         <span className={`text-xs font-bold ${form.house === option.value ? 'text-blue-700' : 'text-slate-900'}`}>
                           {option.value}
                         </span>
-                        <span className="mt-1 text-[10px] leading-tight text-slate-500">
-                          {option.description.split('.')[0]}
-                        </span>
                       </button>
                     ))}
                   </div>

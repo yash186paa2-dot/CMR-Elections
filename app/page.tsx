@@ -11,6 +11,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Crown,
   FileText,
   GraduationCap,
@@ -22,6 +23,10 @@ import {
   Wallet,
   type LucideIcon,
   Vote as VoteIcon,
+  Flame,
+  Droplets,
+  Leaf,
+  Wind,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { CandidateCard } from '@/components/candidate-card';
@@ -30,7 +35,7 @@ import { VoteConfirmModal } from '@/components/vote-confirm-modal';
 import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { fetchCandidates } from '@/lib/candidates';
 import { supabase, type Candidate, type Vote } from '@/lib/supabase';
-import { HOUSE_OPTIONS_BY_VALUE, isCandidateHouse, type CandidateHouse } from '@/lib/houses';
+import { HOUSE_OPTIONS, HOUSE_OPTIONS_BY_VALUE, isCandidateHouse, type CandidateHouse } from '@/lib/houses';
 
 type SupabaseErrorLike = {
   code?: string;
@@ -177,7 +182,7 @@ export default function HomePage() {
   const router = useRouter();
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [studentHouse, setStudentHouse] = useState<string | null>(null);
+  const [selectedHouse, setSelectedHouse] = useState<string | null>(null);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Record<string, string>>({});
   const [dataLoading, setDataLoading] = useState(true);
@@ -189,12 +194,78 @@ export default function HomePage() {
   const [hasStartedVoting, setHasStartedVoting] = useState(false);
   const [isReviewScreenOpen, setIsReviewScreenOpen] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [isSelectingHouse, setIsSelectingHouse] = useState(false);
+  const [houseToConfirm, setHouseToConfirm] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
 
   useEffect(() => {
     if (!loading && !user && !isGuest) {
       router.replace('/login');
     }
   }, [user, isGuest, loading, router]);
+
+  // Timer Logic
+  useEffect(() => {
+    const fetchTimer = async () => {
+      const { data: enabledData } = await supabase
+        .from('election_settings')
+        .select('value')
+        .eq('key', 'timer_enabled')
+        .maybeSingle();
+      
+      const { data: durationData } = await supabase
+        .from('election_settings')
+        .select('value')
+        .eq('key', 'timer_duration')
+        .maybeSingle();
+
+      const { data: statusData } = await supabase
+        .from('election_settings')
+        .select('value')
+        .eq('key', 'timer_status')
+        .maybeSingle();
+
+      const { data: startTimeData } = await supabase
+        .from('election_settings')
+        .select('value')
+        .eq('key', 'timer_start_time')
+        .maybeSingle();
+
+      const enabled = enabledData?.value === 'true';
+      const duration = Number(durationData?.value || 0);
+      const status = (statusData?.value || 'stopped') as 'stopped' | 'running' | 'paused';
+      const startTime = startTimeData?.value ? new Date(startTimeData.value).getTime() : null;
+
+      setTimerStatus(status);
+
+      if (enabled && status === 'running' && startTime) {
+        const now = Date.now();
+        const elapsed = Math.floor((now - startTime) / 1000);
+        const remaining = Math.max(0, duration - elapsed);
+        setTimeLeft(remaining);
+      } else if (enabled && status === 'paused') {
+        // For simplicity, we just show the full duration or some fixed value when paused
+        // Real pause logic would require tracking cumulative elapsed time
+        setTimeLeft(duration);
+      } else {
+        setTimeLeft(null);
+      }
+    };
+
+    fetchTimer();
+    const interval = setInterval(fetchTimer, 5000); // Polling for timer status changes
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (timerStatus === 'running' && timeLeft !== null && timeLeft > 0) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [timerStatus, timeLeft]);
 
   useEffect(() => {
     if (!loading && user) {
@@ -206,13 +277,13 @@ export default function HomePage() {
     }
   }, [user, loading, signOut, router]);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (forcedHouse?: string) => {
     if (!user && !isGuest) return;
 
     setDataLoading(true);
 
     try {
-      const [candidatesRes, votesRes] = await Promise.all([
+      const [candidatesRes, votesRes, studentRes] = await Promise.all([
         fetchCandidates(),
         user
           ? supabase
@@ -221,6 +292,13 @@ export default function HomePage() {
               .eq('voter_id', user.id)
               .order('created_at', { ascending: false })
           : Promise.resolve({ data: [] as Vote[], error: null }),
+        user
+          ? supabase
+              .from('students')
+              .select('class, has_voted')
+              .eq('auth_user_id', user.id)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
       ]);
 
       if (candidatesRes.error) {
@@ -232,20 +310,34 @@ export default function HomePage() {
       }
 
       let filteredCandidates = candidatesRes.data ?? [];
-      let currentStudentHouse: string | null = null;
+      let currentStudentHouse: string | null = forcedHouse || null;
       
-      // Automatically detect house from database for any authenticated user
-      if (user) {
-        const { data: studentData } = await supabase
-          .from('students')
-          .select('class')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
+      // Database is the single source of truth for authenticated users
+      if (user && studentRes.data?.class) {
+        currentStudentHouse = studentRes.data.class;
+        // Sync localStorage
+        if (currentStudentHouse) {
+          const key = `selectedHouse_${user.id}`;
+          localStorage.setItem(key, currentStudentHouse);
+        }
+      } else if (!currentStudentHouse) {
+        // Fallback to localStorage only if DB is empty or user is guest
+        const key = user ? `selectedHouse_${user.id}` : 'selectedHouse';
+        currentStudentHouse = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+      }
+
+      // If authenticated but no house selected in DB or localStorage, show selection screen
+      if (user && !currentStudentHouse) {
+        console.log("No house found, showing selection screen: true");
+        setIsSelectingHouse(true);
+      } else {
+        console.log("House identified, showing selection screen: false");
+        setIsSelectingHouse(false);
         
-        currentStudentHouse = studentData?.class ?? null;
-      } else if (isGuest) {
-        // Default house for guest preview
-        currentStudentHouse = 'Agni House';
+        // Default for guests if no house selected
+        if (isGuest && !currentStudentHouse) {
+          currentStudentHouse = 'Agni House';
+        }
       }
 
       // Strict Filtering: Show General candidates ('None') and ONLY student's house candidates
@@ -254,7 +346,7 @@ export default function HomePage() {
       );
 
       setCandidates(filteredCandidates);
-      setStudentHouse(currentStudentHouse);
+      setSelectedHouse(currentStudentHouse);
       setVotes(votesRes.data ?? []);
     } catch (err) {
       console.error('Data loading error:', err);
@@ -327,6 +419,96 @@ export default function HomePage() {
         .filter((item): item is { position: string; candidate: Candidate } => item !== null),
     [candidateGroups, candidates, votesByPosition]
   );
+
+  const handleHouseSelect = async (house: string) => {
+    console.log('CONFIRM CLICKED');
+    console.log('HOUSE TO SAVE:', house);
+    console.log('USER:', user);
+    console.log('STARTING HOUSE SAVE');
+    console.log('HOUSE SELECTED:', house);
+    
+    if (user) {
+      try {
+        setVotingLoading(true);
+        // Check if student record already exists
+        const fetchResult = await supabase
+          .from('students')
+          .select('id, class, has_voted')
+          .eq('auth_user_id', user.id)
+          .maybeSingle();
+        
+        console.log('FETCH RESULT:', fetchResult);
+        const { data: existing, error: fetchError } = fetchResult;
+
+        if (fetchError) throw fetchError;
+
+        if (existing) {
+          if (existing.class && existing.class !== '') {
+            setErrorModal({
+              title: 'House Already Selected',
+              message: 'You have already selected a house. Changing house selection is not permitted.',
+            });
+            void fetchData(existing.class);
+            console.log('RETURNING HERE (already selected)');
+            return;
+          }
+          // Update existing record
+          const updateResult = await supabase
+            .from('students')
+            .update({ class: house })
+            .eq('auth_user_id', user.id);
+          
+          console.log('UPDATE RESULT:', updateResult);
+          if (updateResult.error) throw updateResult.error;
+        } else {
+          // Insert new record
+          const insertResult = await supabase
+            .from('students')
+            .insert({
+              auth_user_id: user.id,
+              class: house,
+              name: user.user_metadata?.name || '',
+              roll_no: user.user_metadata?.roll_no || null,
+              dob: user.user_metadata?.dob || null,
+            });
+
+          console.log('INSERT RESULT:', insertResult);
+          if (insertResult.error) throw insertResult.error;
+        }
+
+        // Save selected house in localStorage
+        const key = `selectedHouse_${user.id}`;
+        localStorage.setItem(key, house);
+        
+        // Update React state
+        setSelectedHouse(house);
+        setIsSelectingHouse(false);
+        setHouseToConfirm(null);
+        console.log('HIDING HOUSE SCREEN');
+
+        // Immediately continue to the voting page
+        console.log('LOADING BALLOT');
+        void fetchData(house);
+      } catch (err) {
+        console.error('House selection error:', err);
+        setErrorModal({
+          title: 'Selection Error',
+          message: 'Failed to save your house selection. Please try again.',
+        });
+      } finally {
+        setVotingLoading(false);
+      }
+    } else {
+      // Guest mode
+      const key = 'selectedHouse';
+      localStorage.setItem(key, house);
+      setSelectedHouse(house);
+      setIsSelectingHouse(false);
+      setHouseToConfirm(null);
+      console.log('REDIRECTING TO BALLOT (guest)');
+      void fetchData(house);
+    }
+  };
 
   const handleVoteConfirm = async () => {
     if (!confirmCandidate) return;
@@ -411,6 +593,31 @@ export default function HomePage() {
     }
   };
 
+  const handleFinalBallotSubmit = async () => {
+    if (!user || isGuest) {
+      if (isGuest) {
+        setErrorModal({
+          title: 'Guest Preview',
+          message: 'As a guest, you cannot submit a final ballot. Please log in with your student credentials.',
+        });
+      }
+      return;
+    }
+
+    setVotingLoading(true);
+    try {
+      router.push('/thank-you');
+    } catch (err) {
+      console.error('Final submission error:', err);
+      setErrorModal({
+        title: 'Submission Error',
+        message: 'There was a problem finalizing your ballot. Please try again.',
+      });
+    } finally {
+      setVotingLoading(false);
+    }
+  };
+
   if ((loading && !isGuest) || (!user && !isGuest && !loading)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
@@ -418,6 +625,195 @@ export default function HomePage() {
           <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-blue-200 border-t-blue-700" />
           <p className="text-base font-medium text-slate-600">Loading your ballot...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (isSelectingHouse) {
+    const houseIcons: Record<string, LucideIcon> = {
+      'Agni House': Flame,
+      'Jal House': Droplets,
+      'Bhoomi House': Leaf,
+      'Vayu House': Wind,
+    };
+
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-start bg-slate-50/50 p-4 sm:p-8 overflow-y-auto">
+        <div className="w-full max-w-2xl animate-fade-in flex flex-col pt-4 sm:pt-8">
+          {/* Logo & Institution Header */}
+          <div className="flex flex-col items-center text-center mb-8 sm:mb-12">
+            <div className="relative mb-6 h-44 w-44 sm:h-60 sm:w-60">
+              <Image
+                src="/logo.png"
+                alt="CMR Logo"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight uppercase">
+                CMR National PU College
+              </h1>
+              <p className="text-xs sm:text-sm font-bold uppercase tracking-[0.3em] text-slate-400">
+                Official Student Council Elections 2026
+              </p>
+            </div>
+          </div>
+          
+          {/* Personalized Welcome & Quote */}
+          <div className="mb-12 flex flex-col items-center">
+            <div className="w-full rounded-[2.5rem] bg-white p-8 sm:p-10 shadow-xl shadow-slate-200/50 border border-slate-100 text-center">
+              <h2 className="text-3xl sm:text-4xl font-black text-slate-900">
+                Welcome, {getDisplayName(user)}
+              </h2>
+              
+              <div className="mt-8 flex flex-col items-center">
+                <div className="inline-block px-4 py-1 rounded-full bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4">
+                  Election Message
+                </div>
+                <p className="text-xl sm:text-2xl text-slate-800 font-semibold leading-snug max-w-lg mx-auto">
+                  &quot;Your vote is your voice. Choose leaders who will shape the future of CMR.&quot;
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full max-w-xl mx-auto">
+            <div className="flex items-center gap-4 mb-8">
+              <div className="h-px flex-1 bg-slate-200" />
+              <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Select Your House</h3>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+
+            {/* Vertical House List */}
+            <div className="space-y-4">
+              {HOUSE_OPTIONS.map((house) => {
+                const isSelected = selectedHouse === house.value;
+                
+                const styles: Record<string, { bg: string; border: string; button: string; hover: string }> = {
+                  'Agni House': { 
+                    bg: 'bg-[#FFF3E8]', 
+                    border: 'border-orange-200', 
+                    button: 'bg-orange-500',
+                    hover: 'hover:border-orange-400' 
+                  },
+                  'Jal House': { 
+                    bg: 'bg-[#EEF5FF]', 
+                    border: 'border-blue-200', 
+                    button: 'bg-blue-500',
+                    hover: 'hover:border-blue-400' 
+                  },
+                  'Bhoomi House': { 
+                    bg: 'bg-[#EEFDF3]', 
+                    border: 'border-green-200', 
+                    button: 'bg-green-600',
+                    hover: 'hover:border-green-400' 
+                  },
+                  'Vayu House': { 
+                    bg: 'bg-[#F5EEFF]', 
+                    border: 'border-purple-200', 
+                    button: 'bg-purple-600',
+                    hover: 'hover:border-purple-400' 
+                  },
+                };
+
+                const houseStyle = styles[house.value] || styles['Agni House'];
+                
+                return (
+                  <button
+                    key={house.value}
+                    onClick={() => setHouseToConfirm(house.value)}
+                    className={`group relative flex items-center justify-between w-full rounded-[2rem] border px-8 py-7 text-left transition-all duration-500 shadow-xl shadow-slate-200/30 ${houseStyle.bg} ${houseStyle.border} ${houseStyle.hover} hover:shadow-2xl hover:scale-[1.01] active:scale-[0.99]`}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="text-2xl font-black tracking-tight text-[#001F3F]">
+                        {house.value}
+                      </span>
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em]">
+                        Tap to continue
+                      </span>
+                    </div>
+
+                    <div className="flex items-center">
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg transition-all duration-500 group-hover:scale-110 group-hover:rotate-[-5deg] ${houseStyle.button}`}>
+                        <ArrowRight className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Institutional Footer */}
+          <div className="mt-16 mb-8 text-center">
+            <div className="inline-flex items-center gap-3 rounded-full bg-white px-5 py-2.5 border border-slate-100 shadow-sm">
+              <Shield className="h-4 w-4 text-slate-900" />
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                Authorized Secure Student Ballot Portal
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Confirmation Modal */}
+        {houseToConfirm && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-6">
+            <div className="w-full max-w-md animate-scale-in bg-white rounded-[2.5rem] p-10 shadow-2xl border border-white/20">
+              <div className="flex flex-col items-center text-center">
+                <div className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${HOUSE_OPTIONS_BY_VALUE[houseToConfirm as CandidateHouse]?.borderColor || 'bg-slate-900'}`}>
+                  {(() => {
+                    const IconComp = houseIcons[houseToConfirm] || Shield;
+                    return <IconComp className="h-10 w-10 text-white" />;
+                  })()}
+                </div>
+                
+                <h3 className="text-3xl font-black text-slate-900 tracking-tight">Confirm House</h3>
+                
+                <div className="mt-6 p-6 rounded-3xl bg-slate-50 border border-slate-100 w-full text-center">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">You have selected</p>
+                  <p className="text-2xl font-black text-slate-900 mt-2">{houseToConfirm}</p>
+                </div>
+
+                <p className="mt-8 text-base text-slate-500 font-medium leading-relaxed px-2">
+                  This choice is final and <span className="text-rose-600 font-bold">cannot be changed</span> later. Are you sure?
+                </p>
+
+                <div className="mt-10 grid grid-cols-2 gap-4 w-full">
+                  <button
+                    onClick={() => setHouseToConfirm(null)}
+                    className="flex h-14 items-center justify-center rounded-2xl border-2 border-slate-100 font-black text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all text-sm uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      console.log('CONFIRM CLICKED');
+                      console.log('HOUSE TO CONFIRM:', houseToConfirm);
+                      if (houseToConfirm) {
+                        handleHouseSelect(houseToConfirm);
+                      } else {
+                        console.error('houseToConfirm is null when clicking Confirm');
+                      }
+                    }}
+                    className="flex h-14 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-xl hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 text-sm uppercase tracking-widest"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {errorModal && (
+          <ErrorModal
+            title={errorModal.title}
+            message={errorModal.message}
+            onDismiss={() => setErrorModal(null)}
+          />
+        )}
       </div>
     );
   }
@@ -443,6 +839,20 @@ export default function HomePage() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {timeLeft !== null && (
+              <div className={`mr-2 hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold sm:flex ${
+                timeLeft < 10 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-700'
+              }`}>
+                <Clock className="h-3.5 w-3.5" />
+                <span>
+                  {timeLeft > 0 ? (
+                    `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}`
+                  ) : (
+                    "Time's Up!"
+                  )}
+                </span>
+              </div>
+            )}
             {isAdmin && (
               <button
                 type="button"
@@ -512,15 +922,15 @@ export default function HomePage() {
                     {isGuest ? 'Guest Preview' : getDisplayName(user)}
                   </p>
                 </div>
-                {studentHouse && (
+                {selectedHouse && (
                   <div className={`rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50`}>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                       Your House
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full bg-gradient-to-r ${isCandidateHouse(studentHouse) ? HOUSE_OPTIONS_BY_VALUE[studentHouse].accent : 'from-slate-400 to-slate-600'}`} />
+                      <div className={`h-2 w-2 rounded-full bg-gradient-to-r ${isCandidateHouse(selectedHouse) ? HOUSE_OPTIONS_BY_VALUE[selectedHouse].accent : 'from-slate-400 to-slate-600'}`} />
                       <p className="text-lg font-black text-slate-950">
-                        {studentHouse}
+                        {selectedHouse}
                       </p>
                     </div>
                   </div>
@@ -783,13 +1193,18 @@ export default function HomePage() {
                     <div className="mt-8 space-y-4">
                       <button
                         type="button"
-                        onClick={() => {
-                          setSuccessCandidate(recordedSelections[0]?.candidate);
-                        }}
-                        className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98]"
+                        onClick={handleFinalBallotSubmit}
+                        disabled={votingLoading}
+                        className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98] disabled:opacity-50"
                       >
-                        <CheckCircle2 className="h-6 w-6" aria-hidden />
-                        <span>Submit Final Ballot</span>
+                        {votingLoading ? (
+                           <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-6 w-6" aria-hidden />
+                            <span>Submit Final Ballot</span>
+                          </>
+                        )}
                       </button>
                       <p className="text-center text-xs font-medium text-slate-500">
                         Your official ballot is ready for final submission
@@ -1089,6 +1504,14 @@ export default function HomePage() {
         {hasStartedVoting && totalPositions > 0 && (
           <div className="fixed inset-x-0 bottom-0 z-40 bg-white/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-20px_40px_-15px_rgba(15,23,42,0.1)] backdrop-blur-md xl:hidden">
             <div className="mx-auto max-w-lg">
+              {timeLeft !== null && (
+                <div className={`mb-3 flex items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-black uppercase tracking-widest ${
+                  timeLeft < 10 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Time Remaining: {timeLeft > 0 ? `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}` : "Time's Up!"}</span>
+                </div>
+              )}
               {!isReviewScreenOpen && (
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-2">
@@ -1111,14 +1534,18 @@ export default function HomePage() {
               {allPositionsCompleted ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsReviewScreenOpen(true);
-                    setSuccessCandidate(null); // Clear any individual success modal
-                  }}
-                  className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98]"
+                  onClick={handleFinalBallotSubmit}
+                  disabled={votingLoading}
+                  className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98] disabled:opacity-50"
                 >
-                  <CheckCircle2 className="h-6 w-6" aria-hidden />
-                  <span>Submit Final Ballot</span>
+                   {votingLoading ? (
+                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                   ) : (
+                     <>
+                       <CheckCircle2 className="h-6 w-6" aria-hidden />
+                       <span>Submit Final Ballot</span>
+                     </>
+                   )}
                 </button>
               ) : (
                 <div className="flex gap-3">

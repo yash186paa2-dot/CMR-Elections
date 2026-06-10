@@ -10,7 +10,11 @@ import {
   Vote as VoteIcon,
   TrendingUp,
   AlertCircle,
+  RotateCcw,
+  Trash2,
+  X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 type Stats = {
   totalCandidates: number;
@@ -28,123 +32,133 @@ export default function AdminDashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [topCandidates, setTopCandidates] = useState<Candidate[]>([]);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const fetchStats = async () => {
+    setLoading(true);
+    
+    const [
+      candidatesRes,
+      votesRes,
+      votersRes,
+    ] = await Promise.all([
+      supabase.from('candidates').select('*', { count: 'exact' }),
+      supabase.from('votes').select('*', { count: 'exact' }),
+      supabase
+        .from('votes')
+        .select('voter_id')
+        .then((res) => ({
+          ...res,
+          count: res.data ? new Set(res.data.map((v: any) => v.voter_id)).size : 0,
+        })),
+    ]);
+
+    const candidates = candidatesRes.data || [];
+    const positions = new Set(candidates.map((c) => c.position)).size;
+    
+    setStats({
+      totalCandidates: candidates.length,
+      totalVotes: votesRes.count || 0,
+      totalPositions: positions,
+      uniqueVoters: votersRes.count || 0,
+    });
+
+    // Get top candidates
+    const sorted = candidates.sort((a, b) => b.vote_count - a.vote_count);
+    setTopCandidates(sorted.slice(0, 5));
+
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetchStats = async () => {
-      setLoading(true);
-      
-      const [
-        candidatesRes,
-        votesRes,
-        votersRes,
-      ] = await Promise.all([
-        supabase.from('candidates').select('*', { count: 'exact' }),
-        supabase.from('votes').select('*', { count: 'exact' }),
-        supabase
-          .from('votes')
-          .select('voter_id')
-          .then((res) => ({
-            ...res,
-            count: res.data ? new Set(res.data.map((v: any) => v.voter_id)).size : 0,
-          })),
-      ]);
-
-      const candidates = candidatesRes.data || [];
-      const positions = new Set(candidates.map((c) => c.position)).size;
-      
-      setStats({
-        totalCandidates: candidates.length,
-        totalVotes: votesRes.count || 0,
-        totalPositions: positions,
-        uniqueVoters: votersRes.count || 0,
-      });
-
-      // Get top candidates
-      const sorted = candidates.sort((a, b) => b.vote_count - a.vote_count);
-      setTopCandidates(sorted.slice(0, 5));
-
-      setLoading(false);
-    };
-
     fetchStats();
-    const interval = setInterval(fetchStats, 30000); // Refresh every 5 seconds
+    const interval = setInterval(fetchStats, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, []);
+
+  const handleResetElection = async () => {
+    setIsResetting(true);
+    try {
+      const { error } = await supabase.rpc('reset_demo_election');
+      if (error) throw error;
+
+      // Clear localStorage for all users (relevant to this browser)
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('selectedHouse_')) {
+          localStorage.removeItem(key);
+        }
+      });
+      localStorage.removeItem('selectedHouse');
+
+      toast.success("Demo election data has been reset successfully.");
+      
+      // Short delay to show toast before redirect
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1500);
+    } catch (err) {
+      console.error('Reset error:', err);
+      toast.error("Failed to reset election data.");
+      setIsResetting(false);
+    }
+  };
 
   return (
     <AdminLayout activePage="dashboard">
       <div className="space-y-8">
         {/* Timer Settings */}
-        <TimerSettings onSave={() => {
-          // Refresh stats when timer settings are saved
-          const fetchStats = async () => {
-            setLoading(true);
-            
-            const [
-              candidatesRes,
-              votesRes,
-              votersRes,
-            ] = await Promise.all([
-              supabase.from('candidates').select('*', { count: 'exact' }),
-              supabase.from('votes').select('*', { count: 'exact' }),
-              supabase
-                .from('votes')
-                .select('voter_id')
-                .then((res) => ({
-                  ...res,
-                  count: res.data ? new Set(res.data.map((v: any) => v.voter_id)).size : 0,
-                })),
-            ]);
+        <TimerSettings onSave={fetchStats} />
 
-            const candidates = candidatesRes.data || [];
-            const positions = new Set(candidates.map((c) => c.position)).size;
-            
-            setStats({
-              totalCandidates: candidates.length,
-              totalVotes: votesRes.count || 0,
-              totalPositions: positions,
-              uniqueVoters: votersRes.count || 0,
-            });
-
-            const sorted = candidates.sort((a, b) => b.vote_count - a.vote_count);
-            setTopCandidates(sorted.slice(0, 5));
-
-            setLoading(false);
-          };
-          fetchStats();
-        }} />
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             icon={<VoteIcon className="w-6 h-6" />}
-            label="Total Votes Cast"
+            label="Total Votes"
             value={stats.totalVotes}
-            subtext="registered votes"
+            subtext="votes cast"
             color="blue"
           />
           <StatCard
             icon={<Users className="w-6 h-6" />}
-            label="Unique Voters"
+            label="Voted Students"
             value={stats.uniqueVoters}
-            subtext="students voted"
+            subtext="participation"
             color="green"
           />
           <StatCard
             icon={<TrendingUp className="w-6 h-6" />}
             label="Candidates"
             value={stats.totalCandidates}
-            subtext="running for office"
+            subtext="running"
             color="purple"
           />
           <StatCard
             icon={<BarChart3 className="w-6 h-6" />}
             label="Positions"
             value={stats.totalPositions}
-            subtext="to be filled"
-            color="orange"
+            subtext="total"
+            color="blue"
           />
+          
+          {/* Reset Election Card */}
+          <div className="bg-white rounded-2xl mb-24 border border-rose-100 p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+            <div>
+              <div className="inline-flex p-3 rounded-xl bg-rose-50 text-rose-600 mb-4">
+                <RotateCcw className="w-6 h-6" />
+              </div>
+              <p className="text-sm font-medium text-slate-500 mb-1">Danger Zone</p>
+              <p className="text-xl font-bold text-slate-900 mb-1">Reset Demo</p>
+            </div>
+            <button
+              onClick={() => setIsResetModalOpen(true)}
+              className="mt-4 w-full py-2 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Reset Election
+            </button>
+          </div>
         </div>
+
 
         {/* Top Candidates */}
         <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-8 shadow-sm">
@@ -223,6 +237,50 @@ export default function AdminDashboard() {
             </ul>
           </div>
         </div>
+
+        {/* Reset Confirmation Modal */}
+        {isResetModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md bg-white rounded-[2rem] p-8 shadow-2xl border border-rose-100 animate-in fade-in zoom-in duration-200">
+              <div className="flex flex-col items-center text-center">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-rose-50 text-rose-600 shadow-inner">
+                  <RotateCcw className="h-10 w-10" />
+                </div>
+                
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Reset Demo Election</h3>
+                
+                <div className="mt-4 p-4 rounded-2xl bg-rose-50/50 border border-rose-100 w-full">
+                  <p className="text-sm text-rose-800 font-medium leading-relaxed">
+                    This will remove all demo votes and reset election statistics.
+                    <br />
+                    <span className="font-bold">This action cannot be undone.</span>
+                  </p>
+                </div>
+
+                <div className="mt-8 grid grid-cols-2 gap-4 w-full">
+                  <button
+                    onClick={() => setIsResetModalOpen(false)}
+                    disabled={isResetting}
+                    className="flex h-12 items-center justify-center rounded-xl border border-slate-200 font-bold text-slate-500 hover:bg-slate-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleResetElection}
+                    disabled={isResetting}
+                    className="flex h-12 items-center justify-center rounded-xl bg-rose-600 font-bold text-white shadow-lg hover:bg-rose-700 transition-all active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {isResetting ? (
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    ) : (
+                      'Reset Election'
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AdminLayout>
   );
