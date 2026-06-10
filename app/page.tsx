@@ -320,6 +320,10 @@ export default function HomePage() {
         throw new Error(buildBallotErrorMessage('Vote history query', votesRes.error));
       }
 
+      if (studentRes?.error) {
+        throw new Error(buildBallotErrorMessage('Student record query', studentRes.error));
+      }
+
       let filteredCandidates = candidatesRes.data ?? [];
       let currentStudentHouse: string | null = forcedHouse || null;
       
@@ -442,11 +446,12 @@ export default function HomePage() {
         const { data: existing, error: fetchError } = fetchResult;
 
         if (fetchError) throw fetchError;
-        if (!existing) throw new Error('Student record not found for authenticated user.');
+        
+        // Use existing class if available, otherwise use selected house
+        const finalHouse = (existing && existing.class && existing.class !== '') ? existing.class : house;
 
-        const finalHouse = existing.class && existing.class !== '' ? existing.class : house;
-
-        if (!existing.class || existing.class === '') {
+        // Only update if record exists and class is not set
+        if (existing && (!existing.class || existing.class === '')) {
           const updateResult = await supabase
             .from('students')
             .update({ class: house })
@@ -783,14 +788,27 @@ export default function HomePage() {
                         console.error("houseToConfirm is null when clicking Confirm");
                       }
                     }}
+                    disabled={votingLoading}
                     className="flex h-14 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-xl hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 text-sm uppercase tracking-widest"
                   >
-                    Confirm
+                    {votingLoading ? (
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    ) : (
+                      "Confirm"
+                    )}
                   </button>
                 </div>
               </div>
             </div>
           </div>
+        )}
+
+        {errorModal && (
+          <ErrorModal
+            title={errorModal.title}
+            message={errorModal.message}
+            onDismiss={() => setErrorModal(null)}
+          />
         )}
       </div>
     );
