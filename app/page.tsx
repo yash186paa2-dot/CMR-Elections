@@ -300,7 +300,9 @@ export default function HomePage() {
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
       ]);
-
+          console.log('STUDENT RES:', studentRes);
+          console.log('STUDENT DATA:', studentRes?.data);
+          console.log('STUDENT ERROR:', studentRes?.error);
       if (candidatesRes.error) {
         throw new Error(buildBallotErrorMessage('Candidate query', candidatesRes.error));
       }
@@ -309,49 +311,18 @@ export default function HomePage() {
         throw new Error(buildBallotErrorMessage('Vote history query', votesRes.error));
       }
 
-      let studentData = studentRes.data;
-
-      if (studentRes.error) {
-        throw new Error(buildBallotErrorMessage('Student query', studentRes.error));
-      }
-
-      if (user && !studentData) {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData.session?.access_token;
-        console.log('auth.uid():', user.id);
-        console.log('STUDENT ROW FOUND:', null);
-
-        if (token) {
-          const ensureResponse = await fetch('/api/auth/ensure-student', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          const ensureResult = (await ensureResponse.json()) as unknown;
-          console.log('ENSURE STUDENT RESULT:', ensureResult);
-        }
-
-        const retry = await supabase
-          .from('students')
-          .select('class, has_voted')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
-
-        if (retry.error) {
-          throw new Error(buildBallotErrorMessage('Student query (retry)', retry.error));
-        }
-
-        studentData = retry.data;
-        console.log('STUDENT ROW FOUND (after ensure):', studentData);
-      }
+// if (user && studentRes.data?.ballot_submitted) {
+//   router.push('/thank-you');
+//   return;
+// }
 
       let filteredCandidates = candidatesRes.data ?? [];
       let currentStudentHouse: string | null = forcedHouse || null;
       
       // Database is the single source of truth for authenticated users
-      if (user && studentData?.class) {
-        currentStudentHouse = studentData.class;
+      if (user && studentRes.data?.class) {
+        console.log('CLASS FROM DB:', studentRes.data?.class);
+        currentStudentHouse = studentRes.data.class;
         // Sync localStorage
         if (currentStudentHouse) {
           const key = `selectedHouse_${user.id}`;
@@ -369,6 +340,9 @@ export default function HomePage() {
         setIsSelectingHouse(true);
       } else {
         console.log("House identified, showing selection screen: false");
+        console.log('HIDING HOUSE SCREEN');
+console.log('currentStudentHouse =', currentStudentHouse);
+console.log('selectedHouse state before =', selectedHouse);
         setIsSelectingHouse(false);
         
         // Default for guests if no house selected
@@ -467,30 +441,14 @@ export default function HomePage() {
     if (user) {
       try {
         setVotingLoading(true);
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData.session?.access_token;
-
-        console.log('auth.uid():', user.id);
-
-        if (token) {
-          const ensureResponse = await fetch('/api/auth/ensure-student', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          const ensureResult = (await ensureResponse.json()) as unknown;
-          console.log('STUDENT ENSURE RESULT:', ensureResult);
-        }
-
-        // Check if student record already exists (after ensure)
+        // Check if student record already exists
         const fetchResult = await supabase
           .from('students')
           .select('id, class, has_voted')
           .eq('auth_user_id', user.id)
           .maybeSingle();
         
-        console.log('FETCH RESULT:', fetchResult);
+        console.log('QUERY RESULT (fetch student):', fetchResult);
         const { data: existing, error: fetchError } = fetchResult;
 
         if (fetchError) throw fetchError;
@@ -505,29 +463,28 @@ export default function HomePage() {
             console.log('RETURNING HERE (already selected)');
             return;
           }
-        }
-
-        const upsertResult = await supabase
-          .from('students')
-          .upsert(
-            {
+          // Update existing record
+          const updateResult = await supabase
+            .from('students')
+            .update({ class: house })
+            .eq('auth_user_id', user.id);
+          
+          console.log('QUERY RESULT (update student):', updateResult);
+          if (updateResult.error) throw updateResult.error;
+        } else {
+          // Insert new record
+          const insertResult = await supabase
+            .from('students')
+            .insert({
               auth_user_id: user.id,
               class: house,
-            },
-            { onConflict: 'auth_user_id' }
-          )
-          .select('id, class, has_voted')
-          .maybeSingle();
+              name: user.user_metadata?.name || '',
+              roll_no: user.user_metadata?.roll_no || null,
+              dob: user.user_metadata?.dob || null,
+            });
 
-        if (existing) {
-          console.log('UPDATE RESULT:', upsertResult);
-        } else {
-          console.log('INSERT RESULT:', upsertResult);
-        }
-
-        if (upsertResult.error) {
-          console.error('SUPABASE ERROR (upsert):', upsertResult.error);
-          throw upsertResult.error;
+          console.log('QUERY RESULT (insert student):', insertResult);
+          if (insertResult.error) throw insertResult.error;
         }
 
         // Save selected house in localStorage
@@ -538,10 +495,9 @@ export default function HomePage() {
         setSelectedHouse(house);
         setIsSelectingHouse(false);
         setHouseToConfirm(null);
-        console.log('HIDING HOUSE SCREEN');
 
         // Immediately continue to the voting page
-        console.log('LOADING BALLOT');
+        console.log('REDIRECTING TO BALLOT');
         void fetchData(house);
       } catch (err) {
         console.error('House selection error:', err);
@@ -660,6 +616,16 @@ export default function HomePage() {
 
     setVotingLoading(true);
     try {
+      console.log('FINAL BALLOT SUBMITTED');
+      
+      const { error } = await supabase
+        .from('students')
+        .update({ ballot_submitted: true })
+        .eq('auth_user_id', user.id);
+
+      if (error) throw error;
+
+      console.log('REDIRECTING TO THANK YOU PAGE');
       router.push('/thank-you');
     } catch (err) {
       console.error('Final submission error:', err);
@@ -843,12 +809,12 @@ export default function HomePage() {
                   </button>
                   <button
                     onClick={() => {
-                      console.log('CONFIRM CLICKED');
-                      console.log('HOUSE TO CONFIRM:', houseToConfirm);
+                      console.log("Confirm button clicked");
+                      console.log("Selected house (houseToConfirm):", houseToConfirm);
                       if (houseToConfirm) {
                         handleHouseSelect(houseToConfirm);
                       } else {
-                        console.error('houseToConfirm is null when clicking Confirm');
+                        console.error("houseToConfirm is null when clicking Confirm");
                       }
                     }}
                     className="flex h-14 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-xl hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 text-sm uppercase tracking-widest"
@@ -859,14 +825,6 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        )}
-
-        {errorModal && (
-          <ErrorModal
-            title={errorModal.title}
-            message={errorModal.message}
-            onDismiss={() => setErrorModal(null)}
-          />
         )}
       </div>
     );
