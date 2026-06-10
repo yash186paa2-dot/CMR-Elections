@@ -16,6 +16,12 @@ export function TimerSettings({ onSave }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const TIMER_DEFAULTS = {
+    timer_enabled: false,
+    timer_duration: 60,
+    timer_status: 'stopped' as 'stopped' | 'running' | 'paused',
+    timer_start_time: null as string | null,
+  };
 
   useEffect(() => {
     fetchTimerSettings();
@@ -24,27 +30,42 @@ export function TimerSettings({ onSave }: Props) {
   const fetchTimerSettings = async () => {
     try {
       setLoading(true);
-      const { data: enabledData } = await supabase
+      const settingKeys = Object.keys(TIMER_DEFAULTS);
+      const { data, error: fetchError } = await supabase
         .from('election_settings')
-        .select('value')
-        .eq('key', 'timer_enabled')
-        .single();
+        .select('key, value')
+        .in('key', settingKeys);
 
-      const { data: durationData } = await supabase
-        .from('election_settings')
-        .select('value')
-        .eq('key', 'timer_duration')
-        .single();
+      if (fetchError) {
+        throw fetchError;
+      }
 
-      const { data: statusData } = await supabase
-        .from('election_settings')
-        .select('value')
-        .eq('key', 'timer_status')
-        .single();
+      const settingsMap = new Map((data ?? []).map((item) => [item.key, item.value]));
+      const missingSettings = settingKeys
+        .filter((key) => !settingsMap.has(key))
+        .map((key) => ({ key, value: TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS] }));
 
-      if (enabledData?.value) setTimerEnabled(enabledData.value === 'true');
-      if (durationData?.value) setTimerDuration(Number(durationData.value));
-      if (statusData?.value) setTimerStatus(statusData.value);
+      if (missingSettings.length > 0) {
+        const { error: seedError } = await supabase
+          .from('election_settings')
+          .upsert(missingSettings, { onConflict: 'key' });
+
+        if (seedError) {
+          throw seedError;
+        }
+
+        for (const setting of missingSettings) {
+          settingsMap.set(setting.key, setting.value);
+        }
+      }
+
+      const enabledValue = settingsMap.get('timer_enabled');
+      const durationValue = settingsMap.get('timer_duration');
+      const statusValue = settingsMap.get('timer_status');
+
+      setTimerEnabled(enabledValue === true || enabledValue === 'true');
+      setTimerDuration(Number(durationValue ?? TIMER_DEFAULTS.timer_duration));
+      setTimerStatus((statusValue ?? TIMER_DEFAULTS.timer_status) as 'stopped' | 'running' | 'paused');
     } catch (err) {
       console.error('Error fetching timer settings:', err);
       setError('Failed to load timer settings');

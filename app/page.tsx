@@ -199,6 +199,16 @@ export default function HomePage() {
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
 
+  const TIMER_DEFAULTS = useMemo(
+    () => ({
+      timer_enabled: false,
+      timer_duration: 60,
+      timer_status: 'stopped' as 'stopped' | 'running' | 'paused',
+      timer_start_time: null as string | null,
+    }),
+    []
+  );
+
   useEffect(() => {
     if (!loading && !user && !isGuest) {
       router.replace('/login');
@@ -208,34 +218,47 @@ export default function HomePage() {
   // Timer Logic
   useEffect(() => {
     const fetchTimer = async () => {
-      const { data: enabledData } = await supabase
+      const settingKeys = Object.keys(TIMER_DEFAULTS);
+      const { data, error } = await supabase
         .from('election_settings')
-        .select('value')
-        .eq('key', 'timer_enabled')
-        .maybeSingle();
-      
-      const { data: durationData } = await supabase
-        .from('election_settings')
-        .select('value')
-        .eq('key', 'timer_duration')
-        .maybeSingle();
+        .select('key, value')
+        .in('key', settingKeys);
 
-      const { data: statusData } = await supabase
-        .from('election_settings')
-        .select('value')
-        .eq('key', 'timer_status')
-        .maybeSingle();
+      if (error) {
+        console.error('Error fetching timer settings:', error);
+        setTimerStatus('stopped');
+        setTimeLeft(null);
+        return;
+      }
 
-      const { data: startTimeData } = await supabase
-        .from('election_settings')
-        .select('value')
-        .eq('key', 'timer_start_time')
-        .maybeSingle();
+      const settingsMap = new Map((data ?? []).map((item) => [item.key, item.value]));
+      const missingSettings = settingKeys
+        .filter((key) => !settingsMap.has(key))
+        .map((key) => ({ key, value: TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS] }));
 
-      const enabled = enabledData?.value === 'true';
-      const duration = Number(durationData?.value || 0);
-      const status = (statusData?.value || 'stopped') as 'stopped' | 'running' | 'paused';
-      const startTime = startTimeData?.value ? new Date(startTimeData.value).getTime() : null;
+      if (missingSettings.length > 0) {
+        const { error: seedError } = await supabase
+          .from('election_settings')
+          .upsert(missingSettings, { onConflict: 'key' });
+
+        if (seedError) {
+          console.error('Error seeding timer settings:', seedError);
+        } else {
+          for (const setting of missingSettings) {
+            settingsMap.set(setting.key, setting.value);
+          }
+        }
+      }
+
+      const enabledValue = settingsMap.get('timer_enabled');
+      const durationValue = settingsMap.get('timer_duration');
+      const statusValue = settingsMap.get('timer_status');
+      const startTimeValue = settingsMap.get('timer_start_time');
+
+      const enabled = enabledValue === true || enabledValue === 'true';
+      const duration = Number(durationValue ?? TIMER_DEFAULTS.timer_duration);
+      const status = (statusValue ?? TIMER_DEFAULTS.timer_status) as 'stopped' | 'running' | 'paused';
+      const startTime = startTimeValue ? new Date(String(startTimeValue)).getTime() : null;
 
       setTimerStatus(status);
 
@@ -256,7 +279,7 @@ export default function HomePage() {
     fetchTimer();
     const interval = setInterval(fetchTimer, 5000); // Polling for timer status changes
     return () => clearInterval(interval);
-  }, []);
+  }, [TIMER_DEFAULTS]);
 
   useEffect(() => {
     if (timerStatus === 'running' && timeLeft !== null && timeLeft > 0) {
