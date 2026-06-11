@@ -60,10 +60,6 @@ export default function LoginPage() {
         type: 'success',
         text: 'Check your email for a login link from Supabase Auth. Click the link to verify and vote!',
       });
-      setMessage({
-        type: 'success',
-        text: 'If the login email does not arrive immediately, wait 1 or 2 minutes before requesting another link.',
-      });
       setEmail('');
     }
     setIsLoading(false);
@@ -391,7 +387,7 @@ export default function LoginPage() {
           <div className="mt-6 p-4 bg-blue-500/10 rounded-xl border border-blue-500/20">
             <p className="text-xs text-blue-300 leading-relaxed">
               {loginMode === 'student'
-                ? "📧 We'll send you a secure login link via email. Click it to vote!"
+                ? "📧 If the login email does not arrive immediately, wait 1-2 minutes before requesting another link."
                 : loginMode === 'rollno'
                   ? '🔐 Use the roll number and date of birth registered with the college.'
                   : '🔐 Use admin credentials for accessing the dashboard.'}
