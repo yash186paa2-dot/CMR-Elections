@@ -26,6 +26,7 @@ type AuthContextType = {
     error: AuthError | null;
     student?: { id: string; roll_no: string; name: string };
   }>;
+  signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signInAsGuest: () => void;
   signInAsAdminGuest: () => void;
   signOut: () => Promise<void>;
@@ -40,6 +41,7 @@ const AuthContext = createContext<AuthContextType>({
   signInWithEmail: async () => ({ error: null }),
   signInWithPassword: async () => ({ error: null }),
   signInWithRoll: async () => ({ error: null }),
+  signInWithGoogle: async () => ({ error: null }),
   signInAsGuest: () => {},
   signInAsAdminGuest: () => {},
   signOut: async () => {},
@@ -70,8 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('SESSION:', session);
-      console.log('USER:', session?.user);
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: 'https://cmr-student-elections.vercel.app/auth/callback',
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 
@@ -171,6 +171,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: null, student: payload.student };
   };
 
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    return { error: error ? { message: error.message } : null };
+  };
+
   const signInAsGuest = () => {
     setIsGuest(true);
     setLoading(false);
@@ -202,6 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signInWithEmail,
         signInWithPassword,
         signInWithRoll,
+        signInWithGoogle,
         signInAsGuest,
         signInAsAdminGuest,
         signOut,
