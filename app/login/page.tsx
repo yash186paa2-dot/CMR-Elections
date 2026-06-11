@@ -60,6 +60,10 @@ export default function LoginPage() {
         type: 'success',
         text: 'Check your email for a login link from Supabase Auth. Click the link to verify and vote!',
       });
+      setMessage({
+        type: 'success',
+        text: 'If the login email does not arrive immediately, wait 1 or 2 minutes before requesting another link.',
+      });
       setEmail('');
     }
     setIsLoading(false);
