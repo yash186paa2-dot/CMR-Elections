@@ -981,7 +981,7 @@ export default function HomePage() {
               <div className="relative">
                 <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">
                   <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                  Premium Voting Flow
+                  Please read before you vote
                 </div>
                 <p className="mt-4 text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">
                   What Happens Next
