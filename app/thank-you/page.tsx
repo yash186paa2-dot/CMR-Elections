@@ -2,10 +2,28 @@
 
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { CheckCircle2, Home, Shield } from 'lucide-react';
+import { CheckCircle2, LogOut, Shield } from 'lucide-react';
+import { useAuth } from '@/components/auth-provider';
+import { useEffect } from 'react';
 
 export default function ThankYouPage() {
   const router = useRouter();
+  const { user, signOut } = useAuth();
+
+  useEffect(() => {
+    // Clear house selection from local storage
+    if (typeof window !== 'undefined') {
+      if (user?.id) {
+        localStorage.removeItem(`selectedHouse_${user.id}`);
+      }
+      localStorage.removeItem('selectedHouse');
+    }
+  }, [user]);
+
+  const handleReturnToLogin = async () => {
+    await signOut();
+    router.push('/login');
+  };
 
   return (
     <div className="min-h-screen bg-[#eef2f7] flex flex-col items-center justify-center p-4">
@@ -46,11 +64,11 @@ export default function ThankYouPage() {
             </p>
 
             <button
-              onClick={() => router.push('/')}
-              className="flex h-16 items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-10 text-lg font-black uppercase tracking-widest text-white shadow-xl hover:bg-[#003a7a] transition-all active:scale-[0.98]"
+              onClick={handleReturnToLogin}
+              className="flex h-16 w-full sm:w-auto items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-10 text-lg font-black uppercase tracking-widest text-white shadow-xl hover:bg-[#003a7a] transition-all active:scale-[0.98]"
             >
-              <Home className="h-6 w-6" />
-              Return to Home
+              <LogOut className="h-6 w-6" />
+              Return to Login
             </button>
           </div>
         </div>

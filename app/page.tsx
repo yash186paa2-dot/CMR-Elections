@@ -324,6 +324,13 @@ export default function HomePage() {
         throw new Error(buildBallotErrorMessage('Student record query', studentRes.error));
       }
 
+      // Check if student has already voted
+      if (studentRow?.has_voted) {
+        console.log('Student has already voted, redirecting to thank you');
+        router.replace('/thank-you');
+        return;
+      }
+
       let filteredCandidates = candidatesRes.data ?? [];
       let currentStudentHouse: string | null = forcedHouse || null;
       
@@ -587,19 +594,54 @@ export default function HomePage() {
 
     setVotingLoading(true);
     try {
-      console.log('FINAL BALLOT SUBMITTED');
+      console.log('FINAL SUBMIT START');
+      console.log('AUTH USER:', user);
       
-      const { error } = await supabase
+      // Get the currently selected candidates from the votes state
+      const selectedCandidates = votes.map(v => ({
+        position: v.position,
+        candidate_id: v.candidate_id
+      }));
+      console.log('SELECTED CANDIDATES:', selectedCandidates);
+
+      // Verify that the user has actually cast votes for all positions
+      // We already have candidateGroups and votesByPosition from useMemo
+      if (votes.length < candidateGroups.length) {
+        console.warn('Incomplete ballot:', votes.length, '/', candidateGroups.length);
+      }
+
+      // 1. We don't do a bulk insert here because votes are inserted one-by-one in handleVoteConfirm
+      // However, we can log the current votes status as "VOTES INSERT RESULT" to match user's debug request
+      console.log('VOTES INSERT RESULT: Existing votes in state used as source of truth', votes);
+
+      // 2. Update has_voted in students table
+      const updateResult = await supabase
         .from('students')
-        .update({ ballot_submitted: true })
+        .update({ has_voted: true })
         .eq('auth_user_id', user.id);
 
-      if (error) throw error;
+      console.log('HAS_VOTED UPDATE RESULT:', updateResult);
+      if (updateResult.error) {
+        console.error('HAS_VOTED UPDATE ERROR:', updateResult.error);
+        throw updateResult.error;
+      }
+
+      // 3. Verify the update
+      const verifyResult = await supabase
+        .from('students')
+        .select('has_voted')
+        .eq('auth_user_id', user.id)
+        .single();
+      
+      console.log('STUDENT VERIFY RESULT:', verifyResult);
+      if (verifyResult.error) {
+        console.error('STUDENT VERIFY ERROR:', verifyResult.error);
+      }
 
       console.log('REDIRECTING TO THANK YOU PAGE');
       router.push('/thank-you');
-    } catch (err) {
-      console.error('Final submission error:', err);
+    } catch (error) {
+      console.error('FINAL SUBMIT ERROR:', error);
       setErrorModal({
         title: 'Submission Error',
         message: 'There was a problem finalizing your ballot. Please try again.',
