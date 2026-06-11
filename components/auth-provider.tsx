@@ -17,7 +17,6 @@ type AuthContextType = {
   loading: boolean;
   isAdmin: boolean;
   isGuest: boolean;
-  signInWithEmail: (email: string) => Promise<{ error: AuthError | null }>;
   signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signInWithRoll: (
     rollNo: string,
@@ -38,7 +37,6 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   isAdmin: false,
   isGuest: false,
-  signInWithEmail: async () => ({ error: null }),
   signInWithPassword: async () => ({ error: null }),
   signInWithRoll: async () => ({ error: null }),
   signInWithGoogle: async () => ({ error: null }),
@@ -86,22 +84,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const signInWithEmail = async (email: string) => {
-    // Validate @cmr.ac.in domain
-    if (!email.endsWith('@cmr.ac.in')) {
-      return { error: { message: 'Only @cmr.ac.in email addresses are allowed' } };
-    }
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-
-    return { error: error ? { message: error.message } : null };
-  };
 
   const signInWithPassword = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -209,7 +191,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isAdmin,
         isGuest,
-        signInWithEmail,
         signInWithPassword,
         signInWithRoll,
         signInWithGoogle,

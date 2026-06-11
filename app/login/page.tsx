@@ -8,7 +8,7 @@ import type { RollLoginFieldErrors } from '@/lib/student-auth';
 import { Mail, Lock, AlertCircle, Hash, Calendar } from 'lucide-react';
 
 export default function LoginPage() {
-  const { user, loading, isGuest, signInWithEmail, signInWithPassword, signInWithRoll, signInWithGoogle } =
+  const { user, loading, isGuest, signInWithPassword, signInWithRoll, signInWithGoogle } =
     useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -41,28 +41,6 @@ export default function LoginPage() {
   const switchMode = (mode: 'student' | 'rollno' | 'admin') => {
     setLoginMode(mode);
     clearRollErrors();
-  };
-
-  const handleStudentLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setMessage(null);
-
-    const { error: signInError } = await signInWithEmail(email);
-
-    if (signInError) {
-      setMessage({
-        type: 'error',
-        text: signInError.message || 'Login failed. Please try again.',
-      });
-    } else {
-      setMessage({
-        type: 'success',
-        text: 'Check your email for a login link from Supabase Auth. Click the link to verify and vote!',
-      });
-      setEmail('');
-    }
-    setIsLoading(false);
   };
 
   const handleRollNoLogin = async (e: React.FormEvent) => {
@@ -127,113 +105,77 @@ export default function LoginPage() {
 
   const isSubmitDisabled =
     isLoading ||
-    (loginMode === 'student' && !email.trim()) ||
-    (loginMode === 'rollno' && (!rollNo.trim() || !dob)) ||
-    (loginMode === 'admin' && (!email.trim() || !password));
-
-  const cardTitle =
-    loginMode === 'student'
-      ? 'Welcome, Voter'
-      : loginMode === 'rollno'
-        ? 'Roll Number Login'
-        : 'Admin Access';
-
-  const cardDescription =
-    loginMode === 'student'
-      ? 'Sign in with your CMR college email to cast your vote in the student council elections.'
-      : loginMode === 'rollno'
-        ? 'Sign in with your roll number and date of birth.'
-        : 'Sign in with your admin credentials to manage the election.';
+    (loginMode === 'admin' && (!email.trim() || !password)) ||
+    (loginMode === 'rollno' && (!rollNo.trim() || !dob));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse delay-1000" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-blue-400/5 rounded-full blur-2xl" />
+    <div className="min-h-screen bg-[#0a0f1e] flex flex-col items-center justify-start pt-12 md:pt-16 px-4">
+      {/* Background with minimal institutional lighting */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[500px] bg-blue-900/10 rounded-full blur-[120px]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-md px-4">
-        <div className="text-center mb-10 animate-fade-in-up">
-          <div className="text-center mb-6">
+      <div className="relative z-10 w-full max-w-md">
+        {/* Header: Official Branding */}
+        <div className="text-center mb-8 animate-fade-in">
+          <div className="inline-block relative mb-4">
             <Image
               src="/logo.png"
               alt="CMR Logo"
-              width={160}
-              height={160}
-              className="w-40 mx-auto object-contain"
+              width={260}
+              height={260}
+              className="w-44 md:w-52 mx-auto object-contain drop-shadow-2xl"
               priority
             />
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
-            CMR Elections
-          </h1>
-          <p className="text-blue-300 text-lg">Student Council Elections 2026</p>
-          <p className="text-slate-400 text-sm mt-1">CMR NATIONAL PU COLLEGE</p>
-        </div>
-
-        <div className="flex gap-2 mb-6">
-          <button
-            type="button"
-            onClick={() => switchMode('student')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
-              loginMode === 'student'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
-                : 'bg-white/10 text-slate-300 hover:bg-white/20 border border-white/10'
-            }`}
-          >
-            2nd PUC Student Login
-          </button>
-
-          <button
-            type="button"
-            onClick={() => switchMode('rollno')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
-              loginMode === 'rollno'
-                ? 'bg-green-600 text-white'
-                : 'bg-white/10 text-slate-300'
-            }`}
-          >
-            1st PUC Student Login
-          </button>
-
-          <button
-            type="button"
-            onClick={() => switchMode('admin')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
-              loginMode === 'admin'
-                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
-                : 'bg-white/10 text-slate-300 hover:bg-white/20 border border-white/10'
-            }`}
-          >
-            <div className="flex items-center justify-center gap-1">
-              <Lock className="w-4 h-4" />
-              Admin
-            </div>
-          </button>
-        </div>
-
-        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-5 md:p-8 shadow-2xl animate-fade-in-up animation-delay-200">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-semibold text-white mb-2">{cardTitle}</h2>
-            <p className="text-slate-400 text-sm leading-relaxed">{cardDescription}</p>
+          <div className="mt-1 space-y-1">
+            <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+              CMR Elections
+            </h1>
+            <p className="text-slate-400 text-sm md:text-base font-medium">
+              Official Student Council Elections 2026
+            </p>
           </div>
+        </div>
 
+        {/* Tab Navigation: Minimalist */}
+        <div className="flex p-1 gap-1 mb-6 bg-white/[0.03] border border-white/5 rounded-2xl">
+          {[
+            { id: 'student', label: 'Student Login' },
+            { id: 'rollno', label: 'Roll Number' },
+            { id: 'admin', label: 'Admin Access' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => switchMode(tab.id as any)}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+                loginMode === tab.id
+                  ? 'bg-white/10 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.05]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Portal Card: Institutional Style */}
+        <div className="bg-[#0f172a]/80 backdrop-blur-md border border-white/10 rounded-[2.5rem] p-8 md:p-12 shadow-2xl animate-fade-in animation-delay-200 min-h-[380px] flex flex-col justify-center">
+          
           {error === 'invalid_domain' && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-300 text-sm text-center animate-shake flex items-center gap-2">
+            <div className="mb-6 p-4 bg-red-500/5 border border-red-500/20 rounded-2xl text-red-400 text-xs font-medium text-center flex items-center justify-center gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>
-                Only <span className="font-semibold text-red-200">CMR college accounts</span> are allowed.
-              </span>
+              <span>Use your official @cmr.ac.in account only.</span>
             </div>
           )}
 
           {message && (
             <div
-              className={`mb-6 p-4 rounded-xl text-sm flex items-start gap-2 ${
+              className={`mb-6 p-4 rounded-2xl text-xs font-medium flex items-start gap-2 ${
                 message.type === 'error'
-                  ? 'bg-red-500/10 border border-red-500/20 text-red-300'
-                  : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                  ? 'bg-red-500/5 border border-red-500/20 text-red-400'
+                  : 'bg-emerald-500/5 border border-emerald-500/20 text-emerald-400'
               }`}
               role="alert"
             >
@@ -242,224 +184,171 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form
-            onSubmit={
-              loginMode === 'student'
-                ? handleStudentLogin
-                : loginMode === 'rollno'
-                  ? handleRollNoLogin
-                  : handleAdminLogin
-            }
-            className="space-y-4"
-          >
-            {(loginMode === 'student' || loginMode === 'admin') && (
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-slate-200 mb-2">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder={
-                      loginMode === 'student' ? 'your.name@cmr.ac.in' : 'admin@cmr.ac.in'
-                    }
-                    required
-                    autoComplete="email"
-                    className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                  />
+          {loginMode === 'student' && (
+            <div className="space-y-10 py-4">
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-white mb-3">Student Login</h2>
+                <p className="text-slate-400 text-sm leading-relaxed max-w-[280px] mx-auto">
+                  Sign in using your official CMR Google account to participate in the Student Council Elections.
+                </p>
+              </div>
+
+              <div className="space-y-8">
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={isLoading}
+                  className="w-full flex items-center justify-center gap-4 py-4 px-6 rounded-2xl font-bold text-slate-900 bg-white hover:bg-slate-100 transition-all disabled:opacity-50 text-base shadow-xl"
+                >
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.27.81-.57z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg>
+                  )}
+                  Continue with CMR Google Account
+                </button>
+
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 gap-3 px-1">
+                    <div className="flex items-center gap-3">
+                      <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.27.81-.57z" />
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                      </svg>
+                      <span className="text-[11px] font-bold text-slate-300 tracking-wider uppercase">Google Authentication</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.51 12.09 1.011 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701z" />
+                      </svg>
+                      <span className="text-[11px] font-bold text-slate-300 tracking-wider uppercase">Secured by Apple</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Lock className="w-4 h-4 text-slate-400" />
+                      <span className="text-[11px] font-bold text-slate-300 tracking-wider uppercase">High security</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-6 text-center border-t border-white/5">
+                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      Protected by Google, Apple, Supabase authentication, HTTPS encryption
+                    </p>
+                    <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
+                      Only verified <span className="text-slate-400">@cmr.ac.in</span> accounts can access the voting portal.
+                    </p>
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {loginMode === 'rollno' && (
-              <>
-                <div>
-                  <label htmlFor="roll_no" className="block text-sm font-medium text-slate-200 mb-2">
-                    Roll Number
-                  </label>
+          {loginMode === 'rollno' && (
+            <div className="space-y-8">
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-white mb-2">Roll Number Login</h2>
+                <p className="text-slate-400 text-sm">Secure fallback authentication</p>
+              </div>
+
+              <form onSubmit={handleRollNoLogin} className="space-y-4">
+                <div className="space-y-4">
                   <div className="relative">
-                    <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                     <input
-                      id="roll_no"
                       type="text"
                       value={rollNo}
-                      onChange={(e) => {
-                        setRollNo(e.target.value);
-                        if (fieldErrors.roll_no) {
-                          setFieldErrors((current) => ({ ...current, roll_no: undefined }));
-                        }
-                      }}
-                      placeholder="e.g. 1B19"
-                      required
-                      autoComplete="off"
-                      aria-invalid={!!fieldErrors.roll_no}
-                      aria-describedby={fieldErrors.roll_no ? 'roll_no_error' : undefined}
-                      className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all ${
-                        fieldErrors.roll_no
-                          ? 'border-red-400/60 focus:ring-red-500'
-                          : 'border-white/20 focus:ring-green-500'
+                      onChange={(e) => setRollNo(e.target.value)}
+                      placeholder="Roll Number"
+                      className={`w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all ${
+                        fieldErrors.roll_no ? 'border-red-500/40 ring-red-500/10' : ''
                       }`}
                     />
                   </div>
-                  {fieldErrors.roll_no && (
-                    <p id="roll_no_error" className="mt-2 text-sm text-red-300" role="alert">
-                      {fieldErrors.roll_no}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="dob" className="block text-sm font-medium text-slate-200 mb-2">
-                    Date of Birth
-                  </label>
                   <div className="relative">
-                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
+                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                     <input
-                      id="dob"
                       type="date"
                       value={dob}
                       max={maxDob}
-                      onChange={(e) => {
-                        setDob(e.target.value);
-                        if (fieldErrors.dob) {
-                          setFieldErrors((current) => ({ ...current, dob: undefined }));
-                        }
-                      }}
-                      required
-                      aria-invalid={!!fieldErrors.dob}
-                      aria-describedby={fieldErrors.dob ? 'dob_error' : undefined}
-                      className={`w-full pl-12 pr-4 py-3 bg-white/10 border rounded-xl text-white focus:outline-none focus:ring-2 transition-all [color-scheme:dark] ${
-                        fieldErrors.dob
-                          ? 'border-red-400/60 focus:ring-red-500'
-                          : 'border-white/20 focus:ring-green-500'
+                      onChange={(e) => setDob(e.target.value)}
+                      className={`w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all [color-scheme:dark] ${
+                        fieldErrors.dob ? 'border-red-500/40 ring-red-500/10' : ''
                       }`}
                     />
                   </div>
-                  {fieldErrors.dob && (
-                    <p id="dob_error" className="mt-2 text-sm text-red-300" role="alert">
-                      {fieldErrors.dob}
-                    </p>
-                  )}
                 </div>
-              </>
-            )}
 
-            {loginMode === 'admin' && (
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-slate-200 mb-2">
-                  Password
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    required
-                    autoComplete="current-password"
-                    className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
-                  />
-                </div>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isSubmitDisabled}
-              className={`w-full py-3 px-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                loginMode === 'student'
-                  ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:shadow-lg hover:shadow-blue-500/30'
-                  : loginMode === 'rollno'
-                    ? 'bg-gradient-to-r from-green-600 to-green-700 hover:shadow-lg hover:shadow-green-500/30'
-                    : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:shadow-lg hover:shadow-purple-500/30'
-              }`}
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Signing in...
-                </div>
-              ) : loginMode === 'student' ? (
-                'Send Magic Link'
-              ) : loginMode === 'rollno' ? (
-                'Login with Roll Number'
-              ) : (
-                'Admin Login'
-              )}
-            </button>
-          </form>
-
-          {loginMode === 'student' && (
-            <>
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-white/10" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-slate-900/50 backdrop-blur-xl px-2 text-slate-500">Or</span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl font-semibold text-white bg-white/10 border border-white/20 hover:bg-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                  <path
-                    fill="currentColor"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.27.81-.57z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  />
-                </svg>
-                Continue with Google
-              </button>
-            </>
+                <button
+                  type="submit"
+                  disabled={isSubmitDisabled}
+                  className="w-full py-3.5 px-4 rounded-2xl font-bold text-white bg-slate-800 border border-slate-700 hover:bg-slate-700 transition-all disabled:opacity-50 text-sm tracking-wide shadow-lg"
+                >
+                  {isLoading ? 'Verifying...' : 'Login with Roll Number'}
+                </button>
+              </form>
+            </div>
           )}
 
-          <div className="mt-6 p-4 bg-blue-500/10 rounded-xl border border-blue-500/20">
-            <p className="text-xs text-blue-300 leading-relaxed">
-              {loginMode === 'student'
-                ? "📧 If the login email does not arrive immediately, wait 1-2 minutes before requesting another link."
-                : loginMode === 'rollno'
-                  ? '🔐 Use the roll number and date of birth registered with the college.'
-                  : '🔐 Use admin credentials for accessing the dashboard.'}
-            </p>
-          </div>
+          {loginMode === 'admin' && (
+            <div className="space-y-8">
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-white mb-2">Admin Access</h2>
+                <p className="text-slate-400 text-sm">Election Commission Credentials</p>
+              </div>
+
+              <form onSubmit={handleAdminLogin} className="space-y-4">
+                <div className="space-y-4">
+                  <div className="relative">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Admin Email"
+                      className="w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Password"
+                      className="w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white placeholder-slate-700 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitDisabled}
+                  className="w-full py-3.5 px-4 rounded-2xl font-bold text-white bg-blue-900 border border-blue-800 hover:bg-blue-800 transition-all disabled:opacity-50 text-sm tracking-wide shadow-lg"
+                >
+                  {isLoading ? 'Authenticating...' : 'Sign in as Admin'}
+                </button>
+              </form>
+            </div>
+          )}
         </div>
 
-        <div className="mt-8 grid grid-cols-3 gap-4 animate-fade-in-up animation-delay-400">
-          {[
-            { label: 'Email verification', desc: 'No password required' },
-            { label: 'Developed by', desc: 'Yeshwanth B -_- 2B PCMC' },
-            { label: 'Fast & Secure', desc: 'Instant voting experience' },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="text-center p-3 bg-white/5 rounded-2xl border border-white/5"
-            >
-              <p className="text-white text-xs font-semibold mb-0.5">{item.label}</p>
-              <p className="text-slate-500 text-xs">{item.desc}</p>
-            </div>
-          ))}
+        {/* Official Footer: Minimalist */}
+        <div className="mt-12 text-center animate-fade-in animation-delay-400">
+          <div className="inline-block py-6 px-8 rounded-[2rem] bg-white/[0.02] border border-white/5 w-full">
+            <p className="text-slate-500 text-[10px] font-bold mb-1 uppercase tracking-wider">Designed & Developed by</p>
+            <p className="text-white text-xl font-black tracking-tighter uppercase leading-none">Yeshwanth B</p>
+          </div>
+          
+          <div className="mt-8 opacity-20">
+             <div className="h-px w-16 bg-white mx-auto mb-4" />
+             <p className="text-white text-[9px] font-bold uppercase tracking-[0.4em]">Official Student Council Elections 2026</p>
+          </div>
         </div>
       </div>
     </div>

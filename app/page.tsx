@@ -1023,7 +1023,7 @@ export default function HomePage() {
         </section>
 
         {dataLoading ? (
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, index) => (
               <div key={index} className="h-48 rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
                 <div className="p-6">
@@ -1411,7 +1411,7 @@ export default function HomePage() {
                               </div>
                             ) : (
                               <>
-                                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                                <div className="grid grid-cols-2 gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                                   {group.candidates.map((candidate, index) => (
                                     <CandidateCard
                                       key={candidate.id}
