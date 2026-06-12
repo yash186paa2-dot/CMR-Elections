@@ -35,7 +35,7 @@ import { VoteConfirmModal } from '@/components/vote-confirm-modal';
 import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { fetchCandidates } from '@/lib/candidates';
 import { supabase, type Candidate, type Vote, type House } from '@/lib/supabase';
-import { fetchHouses, getHouseTheme, isCandidateHouse } from '@/lib/houses';
+import { fetchHouses, getHouseTheme, isCandidateHouse, hexToRgb } from '@/lib/houses';
 
 type SupabaseErrorLike = {
   code?: string;
@@ -681,78 +681,106 @@ export default function HomePage() {
 
   if (isSelectingHouse) {
     return (
-      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-start bg-slate-50/50 p-4 sm:p-8 overflow-y-auto">
-        <div className="w-full max-w-2xl animate-fade-in flex flex-col pt-4 sm:pt-8">
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-start bg-[#f8fafc] p-4 sm:p-8 overflow-y-auto">
+        {/* Animated Background Elements */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] rounded-full bg-blue-500/5 blur-[120px]" />
+          <div className="absolute top-[20%] -right-[5%] w-[30%] h-[30%] rounded-full bg-purple-500/5 blur-[100px]" />
+          <div className="absolute -bottom-[10%] left-[20%] w-[35%] h-[35%] rounded-full bg-emerald-500/5 blur-[120px]" />
+        </div>
+
+        <div className="w-full max-w-2xl animate-fade-in flex flex-col pt-2 sm:pt-4 relative z-10">
           {/* Logo & Institution Header */}
-          <div className="flex flex-col items-center text-center mb-8 sm:mb-12">
-            <div className="relative mb-6 h-44 w-44 sm:h-60 sm:w-60">
+          <div className="flex flex-col items-center text-center mb-6 sm:mb-8">
+            <div className="relative mb-4 h-32 w-32 sm:h-40 sm:w-40 transition-transform duration-700 hover:scale-105">
               <Image
                 src="/logo.png"
                 alt="CMR Logo"
                 fill
-                className="object-contain"
+                className="object-contain drop-shadow-2xl"
                 priority
               />
             </div>
-            <div className="space-y-2">
-              <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight uppercase">
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">
                 CMR National PU College
               </h1>
-              <p className="text-xs sm:text-sm font-bold uppercase tracking-[0.3em] text-slate-400">
-                Official Student Council Elections 2026
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.4em] text-blue-600/60">
+                Student Council Elections 2026
               </p>
             </div>
           </div>
           
-          {/* Personalized Welcome & Quote */}
-          <div className="mb-12 flex flex-col items-center">
-            <div className="w-full rounded-[2.5rem] bg-white p-8 sm:p-10 shadow-xl shadow-slate-200/50 border border-slate-100 text-center">
-              <h2 className="text-3xl sm:text-4xl font-black text-slate-900">
-                Welcome, {getDisplayName(user)}
-              </h2>
-              
-              <div className="mt-8 flex flex-col items-center">
-                <div className="inline-block px-4 py-1 rounded-full bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4">
-                  Election Message
+          {/* Welcome Card - Glassmorphism */}
+          <div className="mb-8 flex flex-col items-center">
+            <div className="w-full rounded-[2.5rem] bg-white/40 backdrop-blur-xl p-8 sm:p-10 shadow-[0_8px_32px_0_rgba(15,23,42,0.08)] border border-white/60 text-center relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-50" />
+              <div className="relative z-10">
+                <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+                  Welcome, <span className="text-blue-600">{getDisplayName(user)}</span>
+                </h2>
+                
+                <div className="mt-6 flex flex-col items-center">
+                  <div className="inline-block px-4 py-1.5 rounded-full bg-blue-50 text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 mb-4 border border-blue-100/50">
+                    Election Message
+                  </div>
+                  <p className="text-lg sm:text-xl text-slate-700 font-medium leading-relaxed max-w-lg mx-auto italic">
+                    &quot;Your vote is your voice. Choose leaders who will shape the future of CMR.&quot;
+                  </p>
                 </div>
-                <p className="text-xl sm:text-2xl text-slate-800 font-semibold leading-snug max-w-lg mx-auto">
-                  &quot;Your vote is your voice. Choose leaders who will shape the future of CMR.&quot;
-                </p>
               </div>
             </div>
           </div>
 
-          <div className="w-full max-w-xl mx-auto">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="h-px flex-1 bg-slate-200" />
-              <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Select Your House</h3>
-              <div className="h-px flex-1 bg-slate-200" />
+          <div className="w-full max-w-xl mx-auto space-y-8">
+            <div className="flex items-center gap-6">
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200" />
+              <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">Select Your House</h3>
+              <div className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200" />
             </div>
 
             {/* Vertical House List */}
             <div className="space-y-4">
               {houses.map((house) => {
-                const isSelected = selectedHouse === house.name;
-                const theme = getHouseTheme(house.color);
+                const theme = getHouseTheme(house.color, house.name);
+                const isHex = house.color.startsWith('#');
+                const rgb = isHex ? hexToRgb(house.color) : null;
+                const IconComp = theme.icon || Shield;
                 
+                // Tailored glow color based on house
+                const glowStyle = isHex 
+                  ? { '--glow-color': `${rgb?.r} ${rgb?.g} ${rgb?.b}` } as React.CSSProperties
+                  : {};
+
                 return (
                   <button
                     key={house.id}
                     onClick={() => setHouseToConfirm(house.name)}
-                    className={`group relative flex items-center justify-between w-full rounded-[2rem] border px-8 py-7 text-left transition-all duration-500 shadow-xl shadow-slate-200/30 \${theme.surface} \${theme.ring.replace('ring-', 'border-')} hover:border-opacity-100 hover:shadow-2xl hover:scale-[1.01] active:scale-[0.99]`}
+                    style={glowStyle}
+                    className={`group relative flex items-center justify-between w-full rounded-[2rem] bg-white border border-slate-200/60 p-6 pr-8 text-left transition-all duration-500 hover:shadow-[0_20px_50px_-12px_rgba(var(--glow-color,100_116_139),0.25)] hover:-translate-y-1.5 active:scale-[0.98] overflow-hidden`}
                   >
-                    <div className="flex flex-col gap-1">
-                      <span className="text-2xl font-black tracking-tight text-[#001F3F]">
-                        {house.name}
-                      </span>
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em]">
-                        Tap to continue
-                      </span>
+                    {/* Subtle Gradient Background */}
+                    <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-500 \${theme.surface}`} />
+                    
+                    <div className="flex items-center gap-6 relative z-10">
+                      <div className={`flex h-16 w-16 items-center justify-center rounded-2xl shadow-inner transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3 \${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }}>
+                        <IconComp className="h-8 w-8 text-white" />
+                      </div>
+                      
+                      <div className="flex flex-col">
+                        <span className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 transition-colors group-hover:text-blue-600">
+                          {house.name}
+                        </span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className={`h-1.5 w-6 rounded-full \${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }} />
+                          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Official Ballot</span>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="flex items-center">
-                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg transition-all duration-500 group-hover:scale-110 group-hover:rotate-[-5deg] \${theme.borderColor}`}>
-                        <ArrowRight className="h-6 w-6" />
+                    <div className="relative z-10">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-50 text-slate-400 transition-all duration-500 group-hover:bg-blue-600 group-hover:text-white group-hover:translate-x-2 shadow-sm">
+                        <ArrowRight className="h-5 w-5" />
                       </div>
                     </div>
                   </button>
@@ -779,10 +807,15 @@ export default function HomePage() {
               <div className="flex flex-col items-center text-center">
                 {(() => {
                   const houseObj = houses.find(h => h.name === houseToConfirm);
-                  const theme = getHouseTheme(houseObj?.color);
+                  const theme = getHouseTheme(houseObj?.color, houseObj?.name);
                   const IconComp = theme.icon || Shield;
+                  const isHex = houseObj?.color.startsWith('#');
+                  
                   return (
-                    <div className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${theme.borderColor}`}>
+                    <div 
+                      className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${!isHex ? theme.borderColor : ''}`}
+                      style={{ backgroundColor: isHex ? houseObj?.color : undefined }}
+                    >
                       <IconComp className="h-10 w-10 text-white" />
                     </div>
                   );
@@ -808,12 +841,8 @@ export default function HomePage() {
                   </button>
                   <button
                     onClick={() => {
-                      console.log("Confirm button clicked");
-                      console.log("Selected house (houseToConfirm):", houseToConfirm);
                       if (houseToConfirm) {
                         handleHouseSelect(houseToConfirm);
-                      } else {
-                        console.error("houseToConfirm is null when clicking Confirm");
                       }
                     }}
                     disabled={votingLoading}
@@ -952,7 +981,17 @@ export default function HomePage() {
                       Your House
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full bg-gradient-to-r \${getHouseTheme(houses.find(h => h.name === selectedHouse)?.color).accent}`} />
+                      {(() => {
+                        const houseObj = houses.find(h => h.name === selectedHouse);
+                        const theme = getHouseTheme(houseObj?.color, houseObj?.name);
+                        const isHex = houseObj?.color.startsWith('#');
+                        return (
+                          <div 
+                            className={`h-2.5 w-2.5 rounded-full ${!isHex ? `bg-gradient-to-r ${theme.accent}` : ''}`} 
+                            style={{ backgroundColor: isHex ? houseObj?.color : undefined }}
+                          />
+                        );
+                      })()}
                       <p className="text-lg font-black text-slate-950">
                         {selectedHouse}
                       </p>

@@ -61,6 +61,14 @@ export const COLOR_THEMES: Record<string, HouseTheme> = {
     borderColor: 'bg-yellow-500',
     icon: Circle,
   },
+  cyan: {
+    accent: 'from-cyan-500 to-blue-700',
+    surface: 'from-cyan-50 via-white to-cyan-50',
+    ring: 'ring-cyan-200',
+    badge: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+    borderColor: 'bg-cyan-500',
+    icon: Droplets,
+  },
   slate: {
     accent: 'from-slate-500 via-slate-600 to-slate-800',
     surface: 'from-slate-50 via-white to-slate-100',
@@ -71,8 +79,23 @@ export const COLOR_THEMES: Record<string, HouseTheme> = {
   },
 };
 
-export function getHouseTheme(color: string | null | undefined): HouseTheme {
-  return COLOR_THEMES[color || 'slate'] || COLOR_THEMES.slate;
+export function getHouseTheme(color: string | null | undefined, name?: string): HouseTheme {
+  const normalizedColor = color?.toLowerCase() || '';
+  const normalizedName = name?.toLowerCase() || '';
+
+  // Direct hex check - if it starts with #, it's a custom color
+  if (normalizedColor.startsWith('#')) {
+    // We'll return a dynamic-ready theme or fallback to a base and override in UI
+    return COLOR_THEMES.slate;
+  }
+
+  // Name-based mapping for premium legacy themes
+  if (normalizedName.includes('agni')) return COLOR_THEMES.red;
+  if (normalizedName.includes('bhoomi') || normalizedName.includes('prithvi')) return COLOR_THEMES.emerald;
+  if (normalizedName.includes('vayu')) return COLOR_THEMES.blue;
+  if (normalizedName.includes('jal')) return COLOR_THEMES.cyan;
+
+  return COLOR_THEMES[normalizedColor] || COLOR_THEMES.slate;
 }
 
 export function hexToRgb(hex: string) {
