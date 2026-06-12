@@ -1,7 +1,7 @@
 import { supabase, type Candidate } from '@/lib/supabase';
 
 export const CANDIDATE_SELECT =
-  'id,name,position,department,year,bio,photo_url,manifesto,vote_count,house,created_at';
+  'id,name,position,department,year,bio,photo_url,manifesto,vote_count,house,display_order,created_at';
 
 export type CandidateMutation = Pick<
   Candidate,

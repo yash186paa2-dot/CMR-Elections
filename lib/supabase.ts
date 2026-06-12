@@ -27,6 +27,7 @@ export type Candidate = {
   manifesto: string;
   vote_count: number;
   house: string;
+  display_order: number;
   created_at: string;
 };
 
@@ -71,3 +72,12 @@ export type TimerSettings = {
   status: 'stopped' | 'running' | 'paused';
   start_time: string | null;
 };
+
+export type House = {
+  id: number | string;
+  name: string;
+  display_order: number;
+  color: string;
+  created_at: string;
+};
+

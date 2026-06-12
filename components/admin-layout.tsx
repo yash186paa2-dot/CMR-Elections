@@ -3,12 +3,12 @@
 import { useRouter } from 'next/navigation';
 import Image from "next/image";
 import { useAuth } from '@/components/auth-provider';
-import { LogOut, Vote, Settings, BarChart3, Users } from 'lucide-react';
+import { LogOut, Vote, Settings, BarChart3, Users, Palette } from 'lucide-react';
 import Link from 'next/link';
 
 type AdminLayoutProps = {
   children: React.ReactNode;
-  activePage?: 'dashboard' | 'candidates' | 'results';
+  activePage?: 'dashboard' | 'candidates' | 'results' | 'positions' | 'houses';
 };
 
 export function AdminLayout({ children, activePage }: AdminLayoutProps) {
@@ -71,6 +71,18 @@ export function AdminLayout({ children, activePage }: AdminLayoutProps) {
             icon={<Users className="w-5 h-5" />}
             label="Manage Candidates"
             active={activePage === 'candidates'}
+          />
+          <NavItem
+            href="/admin/houses"
+            icon={<Palette className="w-5 h-5" />}
+            label="House Management"
+            active={activePage === 'houses'}
+          />
+          <NavItem
+            href="/admin/positions"
+            icon={<Vote className="w-5 h-5" />}
+            label="Position Order"
+            active={activePage === 'positions'}
           />
           <NavItem
             href="/admin/results"

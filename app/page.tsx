@@ -34,8 +34,8 @@ import { ErrorModal } from '@/components/error-modal';
 import { VoteConfirmModal } from '@/components/vote-confirm-modal';
 import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { fetchCandidates } from '@/lib/candidates';
-import { supabase, type Candidate, type Vote } from '@/lib/supabase';
-import { HOUSE_OPTIONS, HOUSE_OPTIONS_BY_VALUE, isCandidateHouse, type CandidateHouse } from '@/lib/houses';
+import { supabase, type Candidate, type Vote, type House } from '@/lib/supabase';
+import { fetchHouses, getHouseTheme, isCandidateHouse } from '@/lib/houses';
 
 type SupabaseErrorLike = {
   code?: string;
@@ -108,20 +108,29 @@ function buildBallotErrorMessage(source: string, error: unknown) {
 }
 
 function groupCandidatesByPosition(candidates: Candidate[]) {
-  const grouped = new Map<string, Candidate[]>();
+  const grouped = new Map<string, { candidates: Candidate[]; order: number }>();
 
   for (const candidate of candidates) {
     const position = candidate.position.trim() || 'Unassigned Position';
-    const current = grouped.get(position) ?? [];
-    current.push(candidate);
+    const current = grouped.get(position) ?? { candidates: [], order: candidate.display_order ?? 0 };
+    current.candidates.push(candidate);
+    // Keep the minimum order found for this position just in case of inconsistency
+    if (candidate.display_order < current.order) {
+      current.order = candidate.display_order;
+    }
     grouped.set(position, current);
   }
 
   return Array.from(grouped.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([position, positionCandidates]) => ({
+    .sort(([nameA, dataA], [nameB, dataB]) => {
+      if (dataA.order !== dataB.order) {
+        return dataA.order - dataB.order;
+      }
+      return nameA.localeCompare(nameB);
+    })
+    .map(([position, data]) => ({
       position,
-      candidates: [...positionCandidates].sort((a, b) => a.name.localeCompare(b.name)),
+      candidates: [...data.candidates].sort((a, b) => a.name.localeCompare(b.name)),
     })) satisfies PositionGroup[];
 }
 
@@ -182,6 +191,7 @@ export default function HomePage() {
   const router = useRouter();
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [houses, setHouses] = useState<House[]>([]);
   const [selectedHouse, setSelectedHouse] = useState<string | null>(null);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Record<string, string>>({});
@@ -294,8 +304,9 @@ export default function HomePage() {
     setDataLoading(true);
 
     try {
-      const [candidatesRes, votesRes, studentRes] = await Promise.all([
+      const [candidatesRes, housesRes, votesRes, studentRes] = await Promise.all([
         fetchCandidates(),
+        fetchHouses(),
         user
           ? supabase
               .from('votes')
@@ -316,6 +327,10 @@ export default function HomePage() {
         throw new Error(buildBallotErrorMessage('Candidate query', candidatesRes.error));
       }
 
+      if (housesRes.error) {
+        console.error('Error fetching houses:', housesRes.error);
+      }
+
       if (votesRes.error) {
         throw new Error(buildBallotErrorMessage('Vote history query', votesRes.error));
       }
@@ -323,6 +338,8 @@ export default function HomePage() {
       if (studentRes?.error) {
         throw new Error(buildBallotErrorMessage('Student record query', studentRes.error));
       }
+
+      setHouses(housesRes.data ?? []);
 
       // Check if student has already voted
       if (studentRow?.has_voted) {
@@ -663,13 +680,6 @@ export default function HomePage() {
   }
 
   if (isSelectingHouse) {
-    const houseIcons: Record<string, LucideIcon> = {
-      'Agni House': Flame,
-      'Jal House': Droplets,
-      'Bhoomi House': Leaf,
-      'Vayu House': Wind,
-    };
-
     return (
       <div className="fixed inset-0 z-[100] flex flex-col items-center justify-start bg-slate-50/50 p-4 sm:p-8 overflow-y-auto">
         <div className="w-full max-w-2xl animate-fade-in flex flex-col pt-4 sm:pt-8">
@@ -721,47 +731,19 @@ export default function HomePage() {
 
             {/* Vertical House List */}
             <div className="space-y-4">
-              {HOUSE_OPTIONS.map((house) => {
-                const isSelected = selectedHouse === house.value;
-                
-                const styles: Record<string, { bg: string; border: string; button: string; hover: string }> = {
-                  'Agni House': { 
-                    bg: 'bg-[#FFF3E8]', 
-                    border: 'border-orange-200', 
-                    button: 'bg-orange-500',
-                    hover: 'hover:border-orange-400' 
-                  },
-                  'Jal House': { 
-                    bg: 'bg-[#EEF5FF]', 
-                    border: 'border-blue-200', 
-                    button: 'bg-blue-500',
-                    hover: 'hover:border-blue-400' 
-                  },
-                  'Bhoomi House': { 
-                    bg: 'bg-[#EEFDF3]', 
-                    border: 'border-green-200', 
-                    button: 'bg-green-600',
-                    hover: 'hover:border-green-400' 
-                  },
-                  'Vayu House': { 
-                    bg: 'bg-[#F5EEFF]', 
-                    border: 'border-purple-200', 
-                    button: 'bg-purple-600',
-                    hover: 'hover:border-purple-400' 
-                  },
-                };
-
-                const houseStyle = styles[house.value] || styles['Agni House'];
+              {houses.map((house) => {
+                const isSelected = selectedHouse === house.name;
+                const theme = getHouseTheme(house.color);
                 
                 return (
                   <button
-                    key={house.value}
-                    onClick={() => setHouseToConfirm(house.value)}
-                    className={`group relative flex items-center justify-between w-full rounded-[2rem] border px-8 py-7 text-left transition-all duration-500 shadow-xl shadow-slate-200/30 ${houseStyle.bg} ${houseStyle.border} ${houseStyle.hover} hover:shadow-2xl hover:scale-[1.01] active:scale-[0.99]`}
+                    key={house.id}
+                    onClick={() => setHouseToConfirm(house.name)}
+                    className={`group relative flex items-center justify-between w-full rounded-[2rem] border px-8 py-7 text-left transition-all duration-500 shadow-xl shadow-slate-200/30 \${theme.surface} \${theme.ring.replace('ring-', 'border-')} hover:border-opacity-100 hover:shadow-2xl hover:scale-[1.01] active:scale-[0.99]`}
                   >
                     <div className="flex flex-col gap-1">
                       <span className="text-2xl font-black tracking-tight text-[#001F3F]">
-                        {house.value}
+                        {house.name}
                       </span>
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em]">
                         Tap to continue
@@ -769,7 +751,7 @@ export default function HomePage() {
                     </div>
 
                     <div className="flex items-center">
-                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg transition-all duration-500 group-hover:scale-110 group-hover:rotate-[-5deg] ${houseStyle.button}`}>
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg transition-all duration-500 group-hover:scale-110 group-hover:rotate-[-5deg] \${theme.borderColor}`}>
                         <ArrowRight className="h-6 w-6" />
                       </div>
                     </div>
@@ -795,12 +777,16 @@ export default function HomePage() {
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-6">
             <div className="w-full max-w-md animate-scale-in bg-white rounded-[2.5rem] p-10 shadow-2xl border border-white/20">
               <div className="flex flex-col items-center text-center">
-                <div className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${HOUSE_OPTIONS_BY_VALUE[houseToConfirm as CandidateHouse]?.borderColor || 'bg-slate-900'}`}>
-                  {(() => {
-                    const IconComp = houseIcons[houseToConfirm] || Shield;
-                    return <IconComp className="h-10 w-10 text-white" />;
-                  })()}
-                </div>
+                {(() => {
+                  const houseObj = houses.find(h => h.name === houseToConfirm);
+                  const theme = getHouseTheme(houseObj?.color);
+                  const IconComp = theme.icon || Shield;
+                  return (
+                    <div className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${theme.borderColor}`}>
+                      <IconComp className="h-10 w-10 text-white" />
+                    </div>
+                  );
+                })()}
                 
                 <h3 className="text-3xl font-black text-slate-900 tracking-tight">Confirm House</h3>
                 
@@ -966,7 +952,7 @@ export default function HomePage() {
                       Your House
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full bg-gradient-to-r ${isCandidateHouse(selectedHouse) ? HOUSE_OPTIONS_BY_VALUE[selectedHouse].accent : 'from-slate-400 to-slate-600'}`} />
+                      <div className={`h-2 w-2 rounded-full bg-gradient-to-r \${getHouseTheme(houses.find(h => h.name === selectedHouse)?.color).accent}`} />
                       <p className="text-lg font-black text-slate-950">
                         {selectedHouse}
                       </p>

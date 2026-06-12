@@ -3,19 +3,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AdminLayout } from '@/components/admin-layout';
-import { supabase, type Candidate } from '@/lib/supabase';
+import { supabase, type Candidate, type House } from '@/lib/supabase';
 import { CANDIDATE_SELECT, fetchCandidates } from '@/lib/candidates';
-import { Plus, Edit2, Trash2, AlertCircle, CheckCircle2, X, Upload, MapPin } from 'lucide-react';
-import { CANDIDATE_HOUSE_OPTIONS } from '@/lib/houses';
+import { fetchHouses } from '@/lib/houses';
+import { Plus, Edit2, Trash2, AlertCircle, CheckCircle2, X, Upload, MapPin, Search } from 'lucide-react';
 
 export default function CandidatesManagementPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [houses, setHouses] = useState<House[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [searchQuery, setSearchBar] = useState('');
 
   const [form, setForm] = useState({
     name: '',
@@ -30,10 +32,27 @@ export default function CandidatesManagementPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
 
-  const sortedCandidates = useMemo(
-    () => [...candidates].sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name)),
-    [candidates]
-  );
+  const filteredCandidates = useMemo(() => {
+    let result = [...candidates];
+    
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(c => 
+        c.name.toLowerCase().includes(q) ||
+        c.position.toLowerCase().includes(q) ||
+        c.department.toLowerCase().includes(q) ||
+        c.house.toLowerCase().includes(q) ||
+        c.year.toLowerCase().includes(q)
+      );
+    }
+
+    return result.sort((a, b) => {
+      if (a.display_order !== b.display_order) {
+        return a.display_order - b.display_order;
+      }
+      return a.position.localeCompare(b.position) || a.name.localeCompare(b.name);
+    });
+  }, [candidates, searchQuery]);
 
   const resetForm = () => {
     setForm({
@@ -52,19 +71,22 @@ export default function CandidatesManagementPage() {
   };
 
   useEffect(() => {
-    void loadCandidates();
+    void loadData();
   }, []);
 
-  const loadCandidates = async () => {
+  const loadData = async () => {
     setLoading(true);
-    const { data, error } = await fetchCandidates();
-    if (error) {
+    const [candidatesRes, housesRes] = await Promise.all([fetchCandidates(), fetchHouses()]);
+    if (candidatesRes.error) {
       setMessage({
         type: 'error',
-        text: `Unable to load candidates: ${error.message}`,
+        text: `Unable to load candidates: ${candidatesRes.error.message}`,
       });
     } else {
-      setCandidates(data ?? []);
+      setCandidates(candidatesRes.data ?? []);
+    }
+    if (housesRes.data) {
+      setHouses(housesRes.data);
     }
     setLoading(false);
   };
@@ -192,9 +214,7 @@ export default function CandidatesManagementPage() {
         if (error) throw new Error(`Failed to update: ${error.message}`);
 
         setCandidates((current) =>
-          current
-            .map((candidate) => (candidate.id === editingId ? data : candidate))
-            .sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name))
+          current.map((candidate) => (candidate.id === editingId ? data : candidate))
         );
         setMessage({
           type: uploadWarning ? 'error' : 'success',
@@ -209,9 +229,7 @@ export default function CandidatesManagementPage() {
 
         if (error) throw new Error(`Failed to add candidate: ${error.message}`);
 
-        setCandidates((current) =>
-          [...current, data].sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name))
-        );
+        setCandidates((current) => [...current, data]);
         setMessage({
           type: uploadWarning ? 'error' : 'success',
           text: uploadWarning || 'Candidate added successfully',
@@ -220,6 +238,7 @@ export default function CandidatesManagementPage() {
 
       setShowModal(false);
       resetForm();
+      void loadData();
     } catch (err) {
       setMessage({
         type: 'error',
@@ -249,7 +268,7 @@ export default function CandidatesManagementPage() {
   return (
     <AdminLayout activePage="candidates">
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Manage Candidates</h1>
             <p className="mt-1 text-slate-500">Add, edit, or remove candidates from the live ballot</p>
@@ -283,6 +302,25 @@ export default function CandidatesManagementPage() {
           </div>
         )}
 
+        {/* Search and Stats */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Search by name, position, house, or class (dept/year)..." 
+              value={searchQuery}
+              onChange={(e) => setSearchBar(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
+            <span className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full border border-blue-100">
+              {filteredCandidates.length} Candidates Found
+            </span>
+          </div>
+        </div>
+
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="flex flex-col items-center gap-3">
@@ -290,21 +328,25 @@ export default function CandidatesManagementPage() {
               <p className="text-sm text-slate-500">Loading candidates...</p>
             </div>
           </div>
-        ) : sortedCandidates.length === 0 ? (
+        ) : filteredCandidates.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
             <AlertCircle className="mx-auto mb-4 h-12 w-12 text-slate-300" />
-            <p className="mb-4 text-lg font-medium text-slate-500">No candidates yet</p>
-            <button
-              onClick={() => handleOpen()}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
-            >
-              <Plus className="h-4 w-4" />
-              Add Your First Candidate
-            </button>
+            <p className="mb-4 text-lg font-medium text-slate-500">
+              {searchQuery ? 'No matching candidates found' : 'No candidates yet'}
+            </p>
+            {!searchQuery && (
+              <button
+                onClick={() => handleOpen()}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                <Plus className="h-4 w-4" />
+                Add Your First Candidate
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
-            {sortedCandidates.map((candidate) => (
+            {filteredCandidates.map((candidate) => (
               <div
                 key={candidate.id}
                 className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300"
@@ -407,23 +449,19 @@ export default function CandidatesManagementPage() {
                 </div>
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-medium text-slate-700">Allocated House (Filtering) *</label>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {CANDIDATE_HOUSE_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setForm({ ...form, house: option.value })}
-                        className={`flex flex-col items-start rounded-xl border p-3 text-left transition-all ${
-                          form.house === option.value
-                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span className={`text-xs font-bold ${form.house === option.value ? 'text-blue-700' : 'text-slate-900'}`}>
-                          {option.value}
-                        </span>
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-1 gap-2">
+                    <select
+                      value={form.house}
+                      onChange={(e) => setForm({ ...form, house: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-bold"
+                    >
+                      <option value="None">None (General)</option>
+                      {houses.map((house) => (
+                        <option key={house.id} value={house.name}>
+                          {house.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>

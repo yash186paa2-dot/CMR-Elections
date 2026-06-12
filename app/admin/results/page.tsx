@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
-import { supabase, type Candidate, type Vote } from '@/lib/supabase';
+import { supabase, type Candidate, type Vote, type House } from '@/lib/supabase';
 import { fetchCandidates } from '@/lib/candidates';
+import { fetchHouses } from '@/lib/houses';
 import { BarChart3, TrendingUp, Users, Download, AlertCircle, CheckCircle2, Filter } from 'lucide-react';
-import { HOUSE_NAMES } from '@/lib/houses';
 
 type VoteStats = {
   candidateId: string;
@@ -14,10 +14,12 @@ type VoteStats = {
   voteCount: number;
   percentage: number;
   house: string;
+  displayOrder: number;
 };
 
 export default function ResultsPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [houses, setHouses] = useState<House[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [loading, setLoading] = useState(true);
   const [houseFilter, setHouseFilter] = useState<string>('All');
@@ -27,8 +29,9 @@ export default function ResultsPage() {
 
     const fetchData = async () => {
       setLoading(true);
-      const [candidatesRes, votesRes] = await Promise.all([
+      const [candidatesRes, housesRes, votesRes] = await Promise.all([
         fetchCandidates(),
+        fetchHouses(),
         supabase
           .from('votes')
           .select('id,voter_id,voter_email,candidate_id,position,created_at')
@@ -39,6 +42,9 @@ export default function ResultsPage() {
 
       if (candidatesRes.data) {
         setCandidates(candidatesRes.data);
+      }
+      if (housesRes.data) {
+        setHouses(housesRes.data);
       }
       if (votesRes.data) {
         setVotes(votesRes.data);
@@ -69,21 +75,28 @@ export default function ResultsPage() {
         voteCount: candidate.vote_count,
         percentage: totalVotes > 0 ? (candidate.vote_count / totalVotes) * 100 : 0,
         house: candidate.house || 'None',
+        displayOrder: candidate.display_order ?? 0,
       }))
       .filter((stat) => houseFilter === 'All' || stat.house === houseFilter || stat.house === 'None')
       .sort((a, b) => b.voteCount - a.voteCount || a.position.localeCompare(b.position));
   }, [candidates, totalVotes, houseFilter]);
 
   const statsByPosition = useMemo(() => {
-    const grouped = new Map<string, VoteStats[]>();
+    const grouped = new Map<string, { stats: VoteStats[]; order: number }>();
 
     for (const stat of allStats) {
-      const current = grouped.get(stat.position) ?? [];
-      current.push(stat);
+      const current = grouped.get(stat.position) ?? { stats: [], order: stat.displayOrder };
+      current.stats.push(stat);
+      if (stat.displayOrder < current.order) {
+        current.order = stat.displayOrder;
+      }
       grouped.set(stat.position, current);
     }
 
-    return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(grouped.entries()).sort(([nameA, dataA], [nameB, dataB]) => {
+      if (dataA.order !== dataB.order) return dataA.order - dataB.order;
+      return nameA.localeCompare(nameB);
+    });
   }, [allStats]);
 
   const leadingCandidate = allStats[0] ?? null;
@@ -134,9 +147,9 @@ export default function ResultsPage() {
                 className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none"
               >
                 <option value="All">All Houses</option>
-                {HOUSE_NAMES.map((house) => (
-                  <option key={house} value={house}>
-                    {house}
+                {houses.map((house) => (
+                  <option key={house.id} value={house.name}>
+                    {house.name}
                   </option>
                 ))}
               </select>
@@ -270,11 +283,11 @@ export default function ResultsPage() {
                 <h3 className="text-lg font-bold text-slate-900">Results by position</h3>
               </div>
               <div className="space-y-6 p-6">
-                {statsByPosition.map(([position, stats]) => (
+                {statsByPosition.map(([position, data]) => (
                   <section key={position}>
                     <h4 className="mb-3 text-base font-bold text-slate-900">{position}</h4>
                     <div className="space-y-3">
-                      {stats.map((stat) => (
+                      {data.stats.map((stat) => (
                         <div
                           key={stat.candidateId}
                           className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"

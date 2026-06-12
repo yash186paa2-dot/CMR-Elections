@@ -1,106 +1,108 @@
-export const HOUSE_NAMES = [
-  'Agni House',
-  'Jal House',
-  'Bhoomi House',
-  'Vayu House',
-] as const;
+import { supabase, type House } from './supabase';
+import { Flame, Droplets, Leaf, Wind, Shield, Circle, type LucideIcon } from 'lucide-react';
 
-export type HouseName = (typeof HOUSE_NAMES)[number];
-export type CandidateHouse = 'None' | HouseName;
+export type CandidateHouse = 'None' | string;
 
-type BaseHouseOption = {
-  description: string;
+export type HouseTheme = {
   accent: string;
   surface: string;
   ring: string;
   badge: string;
-};
-
-export type HouseOption = BaseHouseOption & {
-  value: HouseName;
-  iconName: 'flame' | 'droplets' | 'leaf' | 'wind';
-  textContrast: string;
   borderColor: string;
+  icon: LucideIcon;
 };
 
-export type CandidateHouseOption = BaseHouseOption & {
-  value: CandidateHouse;
-  iconName?: 'flame' | 'droplets' | 'leaf' | 'wind';
-  textContrast?: string;
-  borderColor?: string;
-};
-
-export const HOUSE_OPTIONS: HouseOption[] = [
-  {
-    value: 'Agni House',
-    iconName: 'flame',
-    description: '',
+export const COLOR_THEMES: Record<string, HouseTheme> = {
+  orange: {
     accent: 'from-orange-600 to-red-700',
-    textContrast: 'text-white',
-    borderColor: 'bg-orange-500',
     surface: 'from-orange-50 via-white to-orange-50',
     ring: 'ring-orange-200',
     badge: 'bg-orange-100 text-orange-700 border-orange-200',
+    borderColor: 'bg-orange-500',
+    icon: Flame,
   },
-  {
-    value: 'Jal House',
-    iconName: 'droplets',
-    description: '',
+  blue: {
     accent: 'from-blue-600 to-indigo-800',
-    textContrast: 'text-white',
-    borderColor: 'bg-blue-500',
     surface: 'from-blue-50 via-white to-blue-50',
     ring: 'ring-blue-200',
     badge: 'bg-blue-100 text-blue-700 border-blue-200',
+    borderColor: 'bg-blue-500',
+    icon: Droplets,
   },
-  {
-    value: 'Bhoomi House',
-    iconName: 'leaf',
-    description: '',
+  emerald: {
     accent: 'from-emerald-600 to-green-800',
-    textContrast: 'text-white',
-    borderColor: 'bg-green-600',
     surface: 'from-emerald-50 via-white to-emerald-50',
     ring: 'ring-emerald-200',
     badge: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    borderColor: 'bg-green-600',
+    icon: Leaf,
   },
-  {
-    value: 'Vayu House',
-    iconName: 'wind',
-    description: '',
+  purple: {
     accent: 'from-purple-600 to-violet-800',
-    textContrast: 'text-white',
-    borderColor: 'bg-purple-600',
     surface: 'from-purple-50 via-white to-purple-50',
     ring: 'ring-purple-200',
     badge: 'bg-purple-100 text-purple-700 border-purple-200',
+    borderColor: 'bg-purple-600',
+    icon: Wind,
   },
-];
-
-export const CANDIDATE_HOUSE_OPTIONS: CandidateHouseOption[] = [
-  {
-    value: 'None',
-    description: '',
+  red: {
+    accent: 'from-red-600 to-rose-800',
+    surface: 'from-red-50 via-white to-red-50',
+    ring: 'ring-red-200',
+    badge: 'bg-red-100 text-red-700 border-red-200',
+    borderColor: 'bg-red-600',
+    icon: Flame,
+  },
+  yellow: {
+    accent: 'from-yellow-500 to-amber-700',
+    surface: 'from-yellow-50 via-white to-yellow-50',
+    ring: 'ring-yellow-200',
+    badge: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    borderColor: 'bg-yellow-500',
+    icon: Circle,
+  },
+  slate: {
     accent: 'from-slate-500 via-slate-600 to-slate-800',
     surface: 'from-slate-50 via-white to-slate-100',
     ring: 'ring-slate-200',
     badge: 'bg-slate-100 text-slate-700 border-slate-200',
+    borderColor: 'bg-slate-600',
+    icon: Shield,
   },
-  ...HOUSE_OPTIONS,
-];
+};
 
-export const HOUSE_OPTIONS_BY_VALUE = Object.fromEntries(
-  CANDIDATE_HOUSE_OPTIONS.map((house) => [house.value, house])
-) as Record<CandidateHouse, CandidateHouseOption>;
+export function getHouseTheme(color: string | null | undefined): HouseTheme {
+  return COLOR_THEMES[color || 'slate'] || COLOR_THEMES.slate;
+}
 
-export const STUDENT_HOUSE_OPTIONS_BY_VALUE = Object.fromEntries(
-  HOUSE_OPTIONS.map((house) => [house.value, house])
-) as Record<HouseName, HouseOption>;
+export function hexToRgb(hex: string) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : null;
+}
 
-export function isHouseName(value: string | null | undefined): value is HouseName {
-  return HOUSE_NAMES.includes(value as HouseName);
+export async function fetchHouses() {
+  try {
+    const { data, error } = await supabase
+      .from('houses')
+      .select('*')
+      .order('display_order', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching houses:', error);
+      return { data: [], error };
+    }
+
+    return { data: (data as House[]) || [], error: null };
+  } catch (err) {
+    console.error('Unexpected error in fetchHouses:', err);
+    return { data: [], error: err instanceof Error ? err : new Error('Unknown error') };
+  }
 }
 
 export function isCandidateHouse(value: string | null | undefined): value is CandidateHouse {
-  return value === 'None' || isHouseName(value);
+  return typeof value === 'string' && value.length > 0;
 }
