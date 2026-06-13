@@ -28,7 +28,7 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
 
   return (
     <article
-      className={`candidate-card relative flex flex-col overflow-hidden rounded-3xl border transition-all duration-500 ease-out ${
+      className={`candidate-card relative flex h-full flex-col overflow-hidden rounded-3xl border transition-all duration-500 ease-out ${
         isSubmittedChoice
           ? 'border-emerald-500 bg-emerald-50 shadow-lg ring-2 ring-emerald-500/20'
           : isActiveSelection
@@ -81,11 +81,8 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
         </div>
 
         {/* Bottom Info Gradient Overlay */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3 pt-10">
-          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-emerald-400">
-            {candidate.position}
-          </p>
-          <h3 className="mt-0.5 text-base font-black leading-tight tracking-tight text-white sm:text-lg">
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-4 pb-5 pt-12">
+          <h3 className="text-lg font-black leading-tight tracking-tight text-white sm:text-xl">
             {candidate.name}
           </h3>
         </div>
@@ -93,7 +90,7 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
 
       {/* Details Section */}
       <div className="flex flex-1 flex-col p-3">
-        <div className="mb-2 flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1">
           <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">
             <Briefcase className="h-2.5 w-2.5 shrink-0 text-slate-500" aria-hidden />
             {candidate.department}
@@ -103,10 +100,6 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
             {candidate.year}
           </span>
         </div>
-
-        <p className="line-clamp-2 text-xs leading-relaxed text-slate-600">
-          {candidate.bio}
-        </p>
       </div>
     </article>
   );

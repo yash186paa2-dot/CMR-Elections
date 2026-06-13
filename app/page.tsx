@@ -15,7 +15,6 @@ import {
   Crown,
   FileText,
   GraduationCap,
-  Lock,
   LogOut,
   MapPin,
   Shield,
@@ -27,6 +26,7 @@ import {
   Droplets,
   Leaf,
   Wind,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { CandidateCard } from '@/components/candidate-card';
@@ -208,6 +208,7 @@ export default function HomePage() {
   const [houseToConfirm, setHouseToConfirm] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
+  const [electionStatus, setElectionStatus] = useState<string>('closed');
 
   const TIMER_DEFAULTS = useMemo(
     () => ({
@@ -215,6 +216,7 @@ export default function HomePage() {
       timer_duration: 60,
       timer_status: 'stopped' as 'stopped' | 'running' | 'paused',
       timer_start_time: null as string | null,
+      election_status: 'closed',
     }),
     []
   );
@@ -225,57 +227,53 @@ export default function HomePage() {
     }
   }, [user, isGuest, loading, router]);
 
-  // Timer Logic
+  // Timer & Status Logic
   useEffect(() => {
-    const fetchTimer = async () => {
-      const settingKeys = Object.keys(TIMER_DEFAULTS);
+    const fetchSettings = async () => {
+      const settingKeys = [...Object.keys(TIMER_DEFAULTS), 'election_status'];
       const { data, error } = await supabase
         .from('election_settings')
         .select('key, value')
         .in('key', settingKeys);
 
       if (error) {
-        console.error('Error fetching timer settings:', error);
+        console.error('Error fetching settings:', error);
         setTimerStatus('stopped');
         setTimeLeft(null);
         return;
       }
 
       const settingsMap = new Map((data ?? []).map((item) => [item.key, item.value]));
-      for (const key of settingKeys) {
-        if (!settingsMap.has(key)) {
-          settingsMap.set(key, TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS]);
-        }
-      }
+      
+      const statusValue = settingsMap.get('election_status');
+      setElectionStatus(typeof statusValue === 'string' ? statusValue.replace(/"/g, '') : 'closed');
 
       const enabledValue = settingsMap.get('timer_enabled');
       const durationValue = settingsMap.get('timer_duration');
-      const statusValue = settingsMap.get('timer_status');
+      const timerStatusValue = settingsMap.get('timer_status');
       const startTimeValue = settingsMap.get('timer_start_time');
 
       const enabled = enabledValue === true || enabledValue === 'true';
       const duration = Number(durationValue ?? TIMER_DEFAULTS.timer_duration);
-      const status = (statusValue ?? TIMER_DEFAULTS.timer_status) as 'stopped' | 'running' | 'paused';
+      const tStatus = (timerStatusValue ?? TIMER_DEFAULTS.timer_status) as 'stopped' | 'running' | 'paused';
       const startTime = startTimeValue ? new Date(String(startTimeValue)).getTime() : null;
 
-      setTimerStatus(status);
+      setTimerStatus(tStatus);
 
-      if (enabled && status === 'running' && startTime) {
+      if (enabled && tStatus === 'running' && startTime) {
         const now = Date.now();
         const elapsed = Math.floor((now - startTime) / 1000);
         const remaining = Math.max(0, duration - elapsed);
         setTimeLeft(remaining);
-      } else if (enabled && status === 'paused') {
-        // For simplicity, we just show the full duration or some fixed value when paused
-        // Real pause logic would require tracking cumulative elapsed time
+      } else if (enabled && tStatus === 'paused') {
         setTimeLeft(duration);
       } else {
         setTimeLeft(null);
       }
     };
 
-    fetchTimer();
-    const interval = setInterval(fetchTimer, 5000); // Polling for timer status changes
+    fetchSettings();
+    const interval = setInterval(fetchSettings, 5000);
     return () => clearInterval(interval);
   }, [TIMER_DEFAULTS]);
 
@@ -667,6 +665,32 @@ export default function HomePage() {
       setVotingLoading(false);
     }
   };
+
+  if (electionStatus !== 'open' && !isAdmin) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md animate-scale-in rounded-[2.5rem] bg-white p-10 shadow-2xl border border-slate-200 text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] bg-rose-50 text-rose-600 border border-rose-100 shadow-inner">
+            <Lock className="h-10 w-10" />
+          </div>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Voting is Closed</h1>
+          <p className="mt-4 text-base font-medium text-slate-500 leading-relaxed">
+            {electionStatus === 'paused' 
+              ? 'The election has been temporarily paused by the administration. Please try again later.' 
+              : electionStatus === 'scheduled'
+                ? 'The election has been scheduled but is not yet open for voting. Please check the official schedule.'
+                : 'The election is currently closed. Official voting is not allowed at this time.'}
+          </p>
+          <button
+            onClick={signOut}
+            className="mt-8 flex w-full h-14 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-xl hover:bg-slate-800 transition-all active:scale-[0.98] text-sm uppercase tracking-widest"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if ((loading && !isGuest) || (!user && !isGuest && !loading)) {
     return (

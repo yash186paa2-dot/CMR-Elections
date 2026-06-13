@@ -30,6 +30,7 @@ export function TimerSettings({ onSave }: Props) {
   const fetchTimerSettings = async () => {
     try {
       setLoading(true);
+      setError(null);
       const settingKeys = Object.keys(TIMER_DEFAULTS);
       const { data, error: fetchError } = await supabase
         .from('election_settings')
@@ -41,34 +42,40 @@ export function TimerSettings({ onSave }: Props) {
       }
 
       const settingsMap = new Map((data ?? []).map((item) => [item.key, item.value]));
-      const missingSettings = settingKeys
-        .filter((key) => !settingsMap.has(key))
-        .map((key) => ({ key, value: TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS] }));
+      
+      // Filter out keys that actually exist in DB
+      const missingKeys = settingKeys.filter((key) => !settingsMap.has(key));
 
-      if (missingSettings.length > 0) {
+      if (missingKeys.length > 0) {
+        const missingSettings = missingKeys.map((key) => ({ 
+          key, 
+          value: TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS] 
+        }));
+
         const { error: seedError } = await supabase
           .from('election_settings')
           .upsert(missingSettings, { onConflict: 'key' });
 
         if (seedError) {
-          throw seedError;
-        }
-
-        for (const setting of missingSettings) {
-          settingsMap.set(setting.key, setting.value);
+          console.error('Seed error:', seedError);
+          // Don't throw here, just use defaults for missing ones
+        } else {
+          for (const setting of missingSettings) {
+            settingsMap.set(setting.key, setting.value);
+          }
         }
       }
 
-      const enabledValue = settingsMap.get('timer_enabled');
-      const durationValue = settingsMap.get('timer_duration');
-      const statusValue = settingsMap.get('timer_status');
+      const enabledValue = settingsMap.get('timer_enabled') ?? TIMER_DEFAULTS.timer_enabled;
+      const durationValue = settingsMap.get('timer_duration') ?? TIMER_DEFAULTS.timer_duration;
+      const statusValue = settingsMap.get('timer_status') ?? TIMER_DEFAULTS.timer_status;
 
       setTimerEnabled(enabledValue === true || enabledValue === 'true');
-      setTimerDuration(Number(durationValue ?? TIMER_DEFAULTS.timer_duration));
-      setTimerStatus((statusValue ?? TIMER_DEFAULTS.timer_status) as 'stopped' | 'running' | 'paused');
+      setTimerDuration(Number(durationValue));
+      setTimerStatus((statusValue as any) || 'stopped');
     } catch (err) {
       console.error('Error fetching timer settings:', err);
-      setError('Failed to load timer settings');
+      setError('Failed to load timer settings. Please check your connection and permissions.');
     } finally {
       setLoading(false);
     }
@@ -81,11 +88,13 @@ export function TimerSettings({ onSave }: Props) {
 
       const duration = timerDuration === 0 && customDuration ? Number(customDuration) : timerDuration;
 
-      await supabase.from('election_settings').upsert([
-        { key: 'timer_enabled', value: String(timerEnabled) },
-        { key: 'timer_duration', value: String(duration) },
+      const { error: saveError } = await supabase.from('election_settings').upsert([
+        { key: 'timer_enabled', value: timerEnabled },
+        { key: 'timer_duration', value: duration },
         { key: 'timer_status', value: timerStatus },
-      ]);
+      ], { onConflict: 'key' });
+
+      if (saveError) throw saveError;
 
       onSave?.();
     } catch (err) {
