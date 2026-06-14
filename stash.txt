@@ -1,0 +1,3766 @@
+diff --git a/app/admin/page.tsx b/app/admin/page.tsx
+index 7cfc11c..f561b41 100644
+--- a/app/admin/page.tsx
++++ b/app/admin/page.tsx
+@@ -1,18 +1,30 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
++import { supabase } from '@/lib/supabase';
+ import { AdminLayout } from '@/components/admin-layout';
+-import { TimerSettings } from '@/components/timer-settings';
+-import { supabase, type Candidate } from '@/lib/supabase';
+-import {
+-  BarChart3,
+-  Users,
+-  Vote as VoteIcon,
+-  TrendingUp,
++import { ElectionControlCenter } from '@/components/election-control-center';
++import { 
++  Users, 
++  UserPlus, 
++  TrendingUp, 
++  BarChart3, 
++  Home, 
+   AlertCircle,
+-  RotateCcw,
++  Clock,
++  Megaphone,
++  Plus,
+   Trash2,
+-  X,
++  ShieldAlert,
++  Moon,
++  Sun,
++  LayoutDashboard,
++  Percent,
++  CheckCircle2,
++  Flame,
++  Droplets,
++  Leaf,
++  Wind
+ } from 'lucide-react';
+ import { toast } from 'sonner';
+ 
+@@ -21,6 +33,32 @@ type Stats = {
+   totalVotes: number;
+   totalPositions: number;
+   uniqueVoters: number;
++  totalStudents: number;
++  totalHouses: number;
++  rawUniqueVoters: number;
++  verifiedVoters: number;
++};
++
++type Candidate = {
++  id: string;
++  name: string;
++  vote_count: number;
++  position: string;
++};
++
++type Log = {
++  id: string;
++  admin_id: string;
++  action: string;
++  details: any;
++  created_at: string;
++};
++
++type Announcement = {
++  id: string;
++  title: string;
++  message: string;
++  is_active: boolean;
+ };
+ 
+ export default function AdminDashboard() {
+@@ -29,291 +67,343 @@ export default function AdminDashboard() {
+     totalVotes: 0,
+     totalPositions: 0,
+     uniqueVoters: 0,
++    totalStudents: 0,
++    totalHouses: 0,
++    rawUniqueVoters: 0,
++    verifiedVoters: 0,
+   });
+   const [loading, setLoading] = useState(true);
+   const [topCandidates, setTopCandidates] = useState<Candidate[]>([]);
++  const [logs, setLogs] = useState<Log[]>([]);
++  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
++  const [resetType, setResetType] = useState<'votes' | 'status' | 'archive'>('votes');
+   const [isResetting, setIsResetting] = useState(false);
++  
++  // Announcement Form
++  const [newAnnouncement, setNewAnnouncement] = useState({ title: '', message: '' });
++  const [isAddingAnnouncement, setIsAddingAnnouncement] = useState(false);
+ 
+   const fetchStats = async () => {
+     setLoading(true);
+     
+-    const [
+-      candidatesRes,
+-      votesRes,
+-      votersRes,
+-    ] = await Promise.all([
+-      supabase.from('candidates').select('*', { count: 'exact' }),
+-      supabase.from('votes').select('*', { count: 'exact' }),
+-      supabase
+-        .from('votes')
+-        .select('voter_id')
+-        .then((res) => ({
+-          ...res,
+-          count: res.data ? new Set(res.data.map((v: any) => v.voter_id)).size : 0,
+-        })),
+-    ]);
+-
+-    const candidates = candidatesRes.data || [];
+-    const positions = new Set(candidates.map((c) => c.position)).size;
+-    
+-    setStats({
+-      totalCandidates: candidates.length,
+-      totalVotes: votesRes.count || 0,
+-      totalPositions: positions,
+-      uniqueVoters: votersRes.count || 0,
+-    });
+-
+-    // Get top candidates
+-    const sorted = candidates.sort((a, b) => b.vote_count - a.vote_count);
+-    setTopCandidates(sorted.slice(0, 5));
+-
+-    setLoading(false);
++    try {
++      const [
++        candidatesRes,
++        votesRes,
++        votersRes,
++        studentsRes,
++        housesRes,
++        logsRes,
++        announcementsRes
++      ] = await Promise.all([
++        supabase.from('candidates').select('*', { count: 'exact' }),
++        supabase.from('votes').select('*', { count: 'exact' }),
++        supabase.from('votes').select('voter_id'),
++        supabase.from('students').select('auth_user_id'),
++        supabase.from('houses').select('*', { count: 'exact' }),
++        supabase.from('election_logs').select('*').order('created_at', { ascending: false }).limit(5),
++        supabase.from('election_announcements').select('*').order('created_at', { ascending: false })
++      ]);
++
++      const candidates = candidatesRes.data || [];
++      const houses = housesRes.data || [];
++      
++      // Calculate Voters
++      const rawVoterIds = votersRes.data ? votersRes.data.map((v: any) => v.voter_id) : [];
++      const rawUniqueVoters = new Set(rawVoterIds);
++      
++      const studentUserIds = new Set((studentsRes.data || [])
++        .map((s: any) => s.auth_user_id)
++        .filter(Boolean));
++      
++      // Verified voters are those who exist in the students table AND have cast at least one vote
++      const verifiedVoterIds = [...rawUniqueVoters].filter(id => studentUserIds.has(id));
++      
++      const positions = new Set(candidates.map((c) => c.position)).size;
++      
++      setStats({
++        totalCandidates: candidates.length,
++        totalVotes: votesRes.count || 0,
++        totalPositions: positions,
++        uniqueVoters: verifiedVoterIds.length,
++        totalStudents: (studentsRes.data || []).length,
++        totalHouses: houses.length,
++        rawUniqueVoters: rawUniqueVoters.size,
++        verifiedVoters: verifiedVoterIds.length,
++      });
++
++      setLogs(logsRes.data || []);
++      setAnnouncements(announcementsRes.data || []);
++
++      const sorted = [...candidates].sort((a, b) => b.vote_count - a.vote_count);
++      setTopCandidates(sorted.slice(0, 5));
++    } catch (err) {
++      console.error('Error fetching dashboard stats:', err);
++    } finally {
++      setLoading(false);
++    }
+   };
+ 
+   useEffect(() => {
+     fetchStats();
+-    const interval = setInterval(fetchStats, 30000); // Refresh every 30 seconds
++    const interval = setInterval(fetchStats, 30000);
+     return () => clearInterval(interval);
+   }, []);
+ 
+-  const handleResetElection = async () => {
++  const handleAction = async () => {
+     setIsResetting(true);
+     try {
+-      const { error } = await supabase.rpc('reset_demo_election');
++      let error;
++      if (resetType === 'votes') {
++        ({ error } = await supabase.rpc('reset_demo_election'));
++      } else if (resetType === 'status') {
++        ({ error } = await supabase.rpc('reset_student_voting_status'));
++      } else if (resetType === 'archive') {
++        ({ error } = await supabase.rpc('archive_election_data'));
++      }
++
+       if (error) throw error;
+ 
+-      // Clear localStorage for all users (relevant to this browser)
+-      Object.keys(localStorage).forEach(key => {
+-        if (key.startsWith('selectedHouse_')) {
+-          localStorage.removeItem(key);
+-        }
++      const { data: userData } = await supabase.auth.getUser();
++      await supabase.rpc('log_election_action', {
++        p_admin_id: userData.user?.id,
++        p_action: `emergency_${resetType}`,
++        p_details: { type: resetType }
+       });
+-      localStorage.removeItem('selectedHouse');
+ 
+-      toast.success("Demo election data has been reset successfully.");
+-      
+-      // Short delay to show toast before redirect
+-      setTimeout(() => {
+-        window.location.href = '/';
+-      }, 1500);
++      toast.success(`${resetType.charAt(0).toUpperCase() + resetType.slice(1)} reset successfully.`);
++      setIsResetModalOpen(false);
++      fetchStats();
+     } catch (err) {
+-      console.error('Reset error:', err);
+-      toast.error("Failed to reset election data.");
++      console.error('Action error:', err);
++      toast.error(`Failed to perform ${resetType} reset.`);
++    } finally {
+       setIsResetting(false);
+     }
+   };
+ 
++  const handleAddAnnouncement = async () => {
++    if (!newAnnouncement.title || !newAnnouncement.message) {
++      toast.error("Please fill in both title and message.");
++      return;
++    }
++
++    try {
++      setIsAddingAnnouncement(true);
++      const { data: userData } = await supabase.auth.getUser();
++      const { error } = await supabase.from('election_announcements').insert([{
++        title: newAnnouncement.title,
++        message: newAnnouncement.message,
++        is_active: true,
++        created_by: userData.user?.id
++      }]);
++
++      if (error) throw error;
++
++      toast.success("Announcement posted successfully.");
++      setNewAnnouncement({ title: '', message: '' });
++      fetchStats();
++    } catch (err) {
++      console.error('Announcement error:', err);
++      toast.error("Failed to post announcement.");
++    } finally {
++      setIsAddingAnnouncement(false);
++    }
++  };
++
++  const toggleAnnouncement = async (id: string, current: boolean) => {
++    try {
++      const { error } = await supabase
++        .from('election_announcements')
++        .update({ is_active: !current })
++        .eq('id', id);
++      
++      if (error) throw error;
++      fetchStats();
++    } catch (err) {
++      toast.error("Failed to update announcement.");
++    }
++  };
++
++  const participationRate = stats.totalStudents > 0 
++    ? ((stats.uniqueVoters / stats.totalStudents) * 100).toFixed(1) 
++    : '0';
++
++  const isDataMismatch = stats.rawUniqueVoters > stats.verifiedVoters;
++
+   return (
+     <AdminLayout activePage="dashboard">
+-      <div className="space-y-8">
+-        {/* Timer Settings */}
+-        <TimerSettings onSave={fetchStats} />
++      <div className="space-y-6">
++        <div className="flex items-center justify-between">
++          <div>
++            <h1 className="text-3xl font-bold text-slate-900">Admin Dashboard</h1>
++            <p className="text-slate-500">Real-time election overview and controls</p>
++          </div>
++          {isDataMismatch && (
++            <div className="flex items-center gap-2 px-4 py-2 bg-rose-50 border border-rose-200 rounded-full text-rose-700 font-bold text-sm">
++              <AlertCircle className="w-4 h-4" />
++              Data Mismatch Detected
++            </div>
++          )}
++        </div>
++
++        <ElectionControlCenter stats={stats} onUpdate={fetchStats} />
+ 
+-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
++        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+           <StatCard
+-            icon={<VoteIcon className="w-6 h-6" />}
+-            label="Total Votes"
+-            value={stats.totalVotes}
+-            subtext="votes cast"
++            icon={<UserPlus className="w-6 h-6 text-blue-600" />}
++            label="Total Students"
++            value={stats.totalStudents}
+             color="blue"
+           />
+           <StatCard
+-            icon={<Users className="w-6 h-6" />}
+-            label="Voted Students"
++            icon={<Users className="w-6 h-6 text-emerald-600" />}
++            label="Verified Voters"
+             value={stats.uniqueVoters}
+-            subtext="participation"
+-            color="green"
++            color="emerald"
+           />
+           <StatCard
+-            icon={<TrendingUp className="w-6 h-6" />}
+-            label="Candidates"
+-            value={stats.totalCandidates}
+-            subtext="running"
+-            color="purple"
++            icon={<BarChart3 className="w-6 h-6 text-indigo-600" />}
++            label="Total Ballots"
++            value={stats.totalVotes}
++            color="indigo"
+           />
+           <StatCard
+-            icon={<BarChart3 className="w-6 h-6" />}
+-            label="Positions"
+-            value={stats.totalPositions}
+-            subtext="total"
+-            color="blue"
++            icon={<TrendingUp className="w-6 h-6 text-purple-600" />}
++            label="Participation"
++            value={`${participationRate}%`}
++            color="purple"
+           />
+-          
+-          {/* Reset Election Card */}
+-          <div className="bg-white rounded-2xl mb-24 border border-rose-100 p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+-            <div>
+-              <div className="inline-flex p-3 rounded-xl bg-rose-50 text-rose-600 mb-4">
+-                <RotateCcw className="w-6 h-6" />
+-              </div>
+-              <p className="text-sm font-medium text-slate-500 mb-1">Danger Zone</p>
+-              <p className="text-xl font-bold text-slate-900 mb-1">Reset Demo</p>
+-            </div>
+-            <button
+-              onClick={() => setIsResetModalOpen(true)}
+-              className="mt-4 w-full py-2 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+-            >
+-              <Trash2 className="w-4 h-4" />
+-              Reset Election
+-            </button>
+-          </div>
+         </div>
+ 
+-
+-        {/* Top Candidates */}
+-        <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-8 shadow-sm">
+-          <div className="flex items-center justify-between mb-6">
+-            <div>
+-              <h2 className="text-xl font-bold text-slate-900">Leading Candidates</h2>
+-              <p className="text-sm text-slate-500 mt-1">Top 5 candidates by vote count</p>
++        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
++          {/* Top Candidates */}
++          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
++            <h2 className="text-xl font-bold mb-6">Top Candidates</h2>
++            <div className="space-y-4">
++              {topCandidates.map((c, i) => (
++                <div key={c.id} className="flex items-center justify-between">
++                  <div className="flex items-center gap-3">
++                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-600">{i+1}</div>
++                    <div>
++                      <p className="font-bold text-slate-900">{c.name}</p>
++                      <p className="text-xs text-slate-500">{c.position}</p>
++                    </div>
++                  </div>
++                  <div className="text-right">
++                    <p className="font-bold text-blue-600">{c.vote_count}</p>
++                    <p className="text-[10px] text-slate-400 font-bold uppercase">Votes</p>
++                  </div>
++                </div>
++              ))}
++              {topCandidates.length === 0 && <p className="text-center py-10 text-slate-400">No data yet</p>}
+             </div>
+           </div>
+ 
+-          {loading ? (
+-            <div className="flex items-center justify-center py-12">
+-              <div className="flex flex-col items-center gap-3">
+-                <div className="w-8 h-8 border-[3px] border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+-                <p className="text-sm text-slate-500">Loading data...</p>
+-              </div>
++          {/* Announcements */}
++          <div className="xl:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
++            <div className="flex items-center justify-between mb-6">
++              <h2 className="text-xl font-bold">Announcements</h2>
++              <button onClick={() => setIsAddingAnnouncement(!isAddingAnnouncement)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-all">
++                <Plus className="w-5 h-5" />
++              </button>
+             </div>
+-          ) : topCandidates.length === 0 ? (
+-            <div className="flex items-center justify-center py-12">
+-              <div className="flex flex-col items-center gap-2 text-slate-500">
+-                <AlertCircle className="w-8 h-8" />
+-                <p className="text-sm">No candidates added yet</p>
++
++            {isAddingAnnouncement && (
++              <div className="mb-6 p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
++                <input
++                  placeholder="Title"
++                  value={newAnnouncement.title}
++                  onChange={(e) => setNewAnnouncement({...newAnnouncement, title: e.target.value})}
++                  className="w-full bg-transparent font-bold text-lg mb-2 outline-none"
++                />
++                <textarea
++                  placeholder="Message"
++                  value={newAnnouncement.message}
++                  onChange={(e) => setNewAnnouncement({...newAnnouncement, message: e.target.value})}
++                  className="w-full bg-transparent text-sm mb-4 outline-none resize-none"
++                />
++                <div className="flex justify-end gap-2">
++                  <button onClick={() => setIsAddingAnnouncement(false)} className="px-4 py-2 text-sm font-bold text-slate-500">Cancel</button>
++                  <button onClick={handleAddAnnouncement} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm">Post</button>
++                </div>
+               </div>
+-            </div>
+-          ) : (
+-            <div className="space-y-4">
+-              {topCandidates.map((candidate, index) => (
+-                <div
+-                  key={candidate.id}
+-                  className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-200 transition-colors"
+-                >
+-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">
+-                    {index + 1}
+-                  </div>
+-                  <div className="flex-1 min-w-0">
+-                    <p className="font-semibold text-slate-900">{candidate.name}</p>
+-                    <p className="text-sm text-slate-500">{candidate.position}</p>
+-                  </div>
+-                  <div className="flex items-center gap-2">
+-                    <div className="text-right">
+-                      <p className="font-bold text-slate-900">{candidate.vote_count}</p>
+-                      <p className="text-xs text-slate-500">
+-                        {candidate.vote_count === 1 ? 'vote' : 'votes'}
+-                      </p>
+-                    </div>
+-                    {/* Vote bar */}
+-                    <div className="w-20 h-2 bg-slate-200 rounded-full overflow-hidden">
+-                      <div
+-                        className="h-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all"
+-                        style={{
+-                          width: `${
+-                            topCandidates[0]?.vote_count
+-                              ? (candidate.vote_count / topCandidates[0].vote_count) * 100
+-                              : 0
+-                          }%`,
+-                        }}
+-                      />
+-                    </div>
++            )}
++
++            <div className="space-y-3">
++              {announcements.map((a) => (
++                <div key={a.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
++                  <div>
++                    <p className="font-bold text-slate-900">{a.title}</p>
++                    <p className="text-sm text-slate-500 line-clamp-1">{a.message}</p>
+                   </div>
++                  <button onClick={() => toggleAnnouncement(a.id, a.is_active)} className={`w-12 h-6 rounded-full relative transition-colors ${a.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}>
++                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${a.is_active ? 'left-7' : 'left-1'}`} />
++                  </button>
+                 </div>
+               ))}
++              {announcements.length === 0 && <p className="text-center py-10 text-slate-400 font-medium">No announcements yet</p>}
+             </div>
+-          )}
++          </div>
+         </div>
+ 
+-        {/* Quick Info */}
+-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6 flex items-start gap-4">
+-          <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+-          <div>
+-            <h3 className="font-semibold text-slate-900 mb-1">System Information</h3>
+-            <ul className="text-sm text-slate-700 space-y-1">
+-              <li>• Each student can vote once per position</li>
+-              <li>• All votes are securely stored and encrypted</li>
+-              <li>• Only @cmr.ac.in accounts are permitted</li>
+-              <li>• Stats update every 5 seconds</li>
+-            </ul>
++        {/* Emergency Zone */}
++        <div className="bg-rose-50 rounded-3xl p-8 border border-rose-100">
++          <div className="flex items-center gap-3 mb-6">
++            <ShieldAlert className="w-6 h-6 text-rose-600" />
++            <h2 className="text-xl font-bold text-rose-900">Emergency Actions</h2>
++          </div>
++          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
++            <button onClick={() => { setResetType('votes'); setIsResetModalOpen(true); }} className="p-4 bg-white rounded-2xl border border-rose-200 text-rose-600 font-bold hover:bg-rose-100 transition-all flex items-center gap-3">
++              <Trash2 className="w-5 h-5" /> Reset All Votes
++            </button>
++            <button onClick={() => { setResetType('status'); setIsResetModalOpen(true); }} className="p-4 bg-white rounded-2xl border border-rose-200 text-rose-600 font-bold hover:bg-rose-100 transition-all flex items-center gap-3">
++              <Users className="w-5 h-5" /> Clear Voter Status
++            </button>
++            <button onClick={() => { setResetType('archive'); setIsResetModalOpen(true); }} className="p-4 bg-white rounded-2xl border border-rose-200 text-rose-600 font-bold hover:bg-rose-100 transition-all flex items-center gap-3">
++              <Home className="w-5 h-5" /> Archive Current Data
++            </button>
+           </div>
+         </div>
++      </div>
+ 
+-        {/* Reset Confirmation Modal */}
+-        {isResetModalOpen && (
+-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+-            <div className="w-full max-w-md bg-white rounded-[2rem] p-8 shadow-2xl border border-rose-100 animate-in fade-in zoom-in duration-200">
+-              <div className="flex flex-col items-center text-center">
+-                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-rose-50 text-rose-600 shadow-inner">
+-                  <RotateCcw className="h-10 w-10" />
+-                </div>
+-                
+-                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Reset Demo Election</h3>
+-                
+-                <div className="mt-4 p-4 rounded-2xl bg-rose-50/50 border border-rose-100 w-full">
+-                  <p className="text-sm text-rose-800 font-medium leading-relaxed">
+-                    This will remove all demo votes and reset election statistics.
+-                    <br />
+-                    <span className="font-bold">This action cannot be undone.</span>
+-                  </p>
+-                </div>
+-
+-                <div className="mt-8 grid grid-cols-2 gap-4 w-full">
+-                  <button
+-                    onClick={() => setIsResetModalOpen(false)}
+-                    disabled={isResetting}
+-                    className="flex h-12 items-center justify-center rounded-xl border border-slate-200 font-bold text-slate-500 hover:bg-slate-50 transition-all"
+-                  >
+-                    Cancel
+-                  </button>
+-                  <button
+-                    onClick={handleResetElection}
+-                    disabled={isResetting}
+-                    className="flex h-12 items-center justify-center rounded-xl bg-rose-600 font-bold text-white shadow-lg hover:bg-rose-700 transition-all active:scale-[0.98] disabled:opacity-50"
+-                  >
+-                    {isResetting ? (
+-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+-                    ) : (
+-                      'Reset Election'
+-                    )}
+-                  </button>
+-                </div>
+-              </div>
++      {/* Reset Confirmation Modal */}
++      {isResetModalOpen && (
++        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
++          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl">
++            <h3 className="text-2xl font-bold text-slate-900 mb-4">Are you absolutely sure?</h3>
++            <p className="text-slate-500 mb-8 leading-relaxed">This will perform a <span className="font-bold text-rose-600 uppercase">{resetType}</span> reset. This action is permanent and cannot be reversed.</p>
++            <div className="flex gap-4">
++              <button onClick={() => setIsResetModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-500 hover:bg-slate-50">Cancel</button>
++              <button onClick={handleAction} disabled={isResetting} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-bold hover:bg-rose-700 disabled:opacity-50">
++                {isResetting ? 'Processing...' : 'Yes, Reset'}
++              </button>
+             </div>
+           </div>
+-        )}
+-      </div>
++        </div>
++      )}
+     </AdminLayout>
+   );
+ }
+ 
+-function StatCard({
+-  icon,
+-  label,
+-  value,
+-  subtext,
+-  color,
+-}: {
+-  icon: React.ReactNode;
+-  label: string;
+-  value: number;
+-  subtext: string;
+-  color: 'blue' | 'green' | 'purple' | 'orange';
+-}) {
+-  const colors = {
+-    blue: 'from-blue-500 to-blue-600 text-blue-600 bg-blue-50',
+-    green: 'from-green-500 to-green-600 text-green-600 bg-green-50',
+-    purple: 'from-purple-500 to-purple-600 text-purple-600 bg-purple-50',
+-    orange: 'from-orange-500 to-orange-600 text-orange-600 bg-orange-50',
++function StatCard({ icon, label, value, color }: any) {
++  const bgColors: any = {
++    blue: 'bg-blue-50',
++    emerald: 'bg-emerald-50',
++    indigo: 'bg-indigo-50',
++    purple: 'bg-purple-50',
+   };
+ 
+   return (
+-    <div className="bg-white rounded-2xl mb-24 border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+-      <div className={`inline-flex p-3 rounded-xl ${colors[color]} mb-4 text-white`}>
+-        <div className={`text-${color}-600`}>{icon}</div>
++    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex items-center gap-5">
++      <div className={`p-4 rounded-2xl ${bgColors[color]}`}>
++        {icon}
++      </div>
++      <div>
++        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</p>
++        <p className="text-2xl font-black text-slate-900">{value}</p>
+       </div>
+-      <p className="text-sm font-medium text-slate-500 mb-1">{label}</p>
+-      <p className="text-3xl font-bold text-slate-900 mb-1">{value}</p>
+-      <p className="text-xs text-slate-500">{subtext}</p>
+     </div>
+   );
+ }
+diff --git a/app/admin/results/page.tsx b/app/admin/results/page.tsx
+index a1c0e75..8c2432e 100644
+--- a/app/admin/results/page.tsx
++++ b/app/admin/results/page.tsx
+@@ -132,23 +132,24 @@ export default function ResultsPage() {
+ 
+   return (
+     <AdminLayout activePage="results">
+-      <div className="space-y-8">
+-        <div className="flex items-center justify-between">
++      <div className="space-y-8 min-h-screen transition-colors duration-500" style={{ backgroundColor: 'var(--bg-color)', color: 'var(--text-color)' }}>
++        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+           <div>
+-            <h1 className="text-3xl font-bold text-slate-900">Election Results</h1>
+-            <p className="mt-1 text-slate-500">Live vote totals from the actual `votes` table</p>
++            <h1 className="text-4xl font-black tracking-tighter">Election Results</h1>
++            <p className="mt-1 opacity-50 font-bold">Live vote totals from the official database</p>
+           </div>
+-          <div className="flex items-center gap-3">
+-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2">
+-              <Filter className="h-4 w-4 text-slate-400" />
++          <div className="flex flex-wrap items-center gap-3">
++            <div className="flex items-center gap-2 rounded-xl border px-4 py-2 bg-slate-500/5 transition-all" style={{ borderColor: 'var(--border-color)' }}>
++              <Filter className="h-4 w-4 opacity-40" />
+               <select
+                 value={houseFilter}
+                 onChange={(e) => setHouseFilter(e.target.value)}
+-                className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none"
++                className="bg-transparent text-sm font-black focus:outline-none"
++                style={{ color: 'var(--text-color)' }}
+               >
+                 <option value="All">All Houses</option>
+                 {houses.map((house) => (
+-                  <option key={house.id} value={house.name}>
++                  <option key={house.id} value={house.name} className="text-slate-900">
+                     {house.name}
+                   </option>
+                 ))}
+@@ -156,100 +157,78 @@ export default function ResultsPage() {
+             </div>
+             <button
+               onClick={downloadResults}
+-              className="flex items-center gap-2 rounded-xl bg-slate-100 px-6 py-3 font-semibold text-slate-900 transition-colors hover:bg-slate-200"
++              className="flex items-center gap-2 rounded-xl px-6 py-3 font-black text-sm transition-all hover:scale-105 active:scale-95 bg-slate-500/10"
++              style={{ color: 'var(--text-color)' }}
+             >
+-              <Download className="h-5 w-5" />
+-              Export CSV
++              <Download className="h-4 w-4" />
++              Export Results
+             </button>
+           </div>
+         </div>
+ 
+         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+-            <div className="flex items-center justify-between">
+-              <div>
+-                <p className="mb-1 text-sm font-medium text-slate-500">Total Votes</p>
+-                <p className="text-3xl font-bold text-slate-900">{totalVotes}</p>
+-              </div>
+-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100">
+-                <BarChart3 className="h-6 w-6 text-blue-600" />
+-              </div>
+-            </div>
+-          </div>
+-
+-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+-            <div className="flex items-center justify-between">
+-              <div>
+-                <p className="mb-1 text-sm font-medium text-slate-500">Unique Voters</p>
+-                <p className="text-3xl font-bold text-slate-900">{uniqueVoters}</p>
+-              </div>
+-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-100">
+-                <Users className="h-6 w-6 text-green-600" />
+-              </div>
+-            </div>
+-          </div>
+-
+-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+-            <div className="flex items-center justify-between">
+-              <div>
+-                <p className="mb-1 text-sm font-medium text-slate-500">Positions</p>
+-                <p className="text-3xl font-bold text-slate-900">{totalPositions}</p>
+-              </div>
+-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100">
+-                <TrendingUp className="h-6 w-6 text-purple-600" />
+-              </div>
+-            </div>
+-          </div>
++          <StatMiniCard 
++            label="Total Votes" 
++            value={totalVotes} 
++            icon={<BarChart3 className="h-6 w-6 text-blue-500" />} 
++          />
++          <StatMiniCard 
++            label="Unique Voters" 
++            value={uniqueVoters} 
++            icon={<Users className="h-6 w-6 text-emerald-500" />} 
++          />
++          <StatMiniCard 
++            label="Positions" 
++            value={totalPositions} 
++            icon={<TrendingUp className="h-6 w-6 text-purple-500" />} 
++          />
+         </div>
+ 
+         {loading ? (
+-          <div className="flex items-center justify-center py-12">
+-            <div className="flex flex-col items-center gap-3">
+-              <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-blue-200 border-t-blue-600" />
+-              <p className="text-sm text-slate-500">Loading results...</p>
++          <div className="flex items-center justify-center py-24">
++            <div className="flex flex-col items-center gap-4">
++              <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-500" />
++              <p className="text-sm font-black opacity-40">CALCULATING REAL-TIME TOTALS...</p>
+             </div>
+           </div>
+         ) : candidates.length === 0 ? (
+-          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+-            <AlertCircle className="mx-auto mb-4 h-12 w-12 text-slate-300" />
+-            <p className="mb-4 text-lg font-medium text-slate-500">No candidates added yet</p>
+-            <p className="text-slate-400">Add candidates first in the Manage Candidates section</p>
++          <div className="rounded-[2.5rem] border p-16 text-center shadow-xl" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-color)' }}>
++            <AlertCircle className="mx-auto mb-6 h-16 w-16 opacity-20" />
++            <h2 className="text-2xl font-black mb-2">No candidates found</h2>
++            <p className="opacity-50 font-medium">Add candidates to the system to begin tracking results.</p>
+           </div>
+         ) : (
+           <>
+-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+-              <h3 className="mb-4 text-xl font-bold text-slate-900">Overall leaderboard</h3>
+-              <div className="space-y-4">
++            <div className="rounded-[2.5rem] border p-8 shadow-2xl transition-all" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-color)' }}>
++              <h3 className="mb-8 text-2xl font-black tracking-tight">Leaderboard</h3>
++              <div className="space-y-6">
+                 {allStats.slice(0, 10).map((stat, index) => (
+-                  <div key={stat.candidateId}>
+-                    <div className="mb-2 flex items-center justify-between">
+-                      <div className="flex items-center gap-3">
++                  <div key={stat.candidateId} className="group">
++                    <div className="mb-3 flex items-center justify-between">
++                      <div className="flex items-center gap-4">
+                         <div
+-                          className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
+-                            index === 0
+-                              ? 'bg-yellow-400 text-yellow-900'
+-                              : index === 1
+-                                ? 'bg-gray-300 text-gray-700'
+-                                : index === 2
+-                                  ? 'bg-orange-400 text-orange-900'
+-                                  : 'bg-slate-200 text-slate-600'
++                          className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg font-black ${
++                            index === 0 ? 'bg-yellow-400 text-yellow-900 shadow-lg shadow-yellow-400/20' : 
++                            index === 1 ? 'bg-slate-300 text-slate-700' : 
++                            index === 2 ? 'bg-orange-400 text-orange-900' :
++                            'bg-slate-500/10 opacity-50'
+                           }`}
+                         >
+                           {index + 1}
+                         </div>
+                         <div>
+-                          <p className="font-semibold text-slate-900">{stat.candidateName}</p>
+-                          <p className="text-xs text-slate-500">{stat.position}</p>
++                          <p className="font-black text-lg">{stat.candidateName}</p>
++                          <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">{stat.position}</p>
+                         </div>
+                       </div>
+                       <div className="text-right">
+-                        <p className="font-bold text-slate-900">{stat.voteCount}</p>
+-                        <p className="text-xs text-slate-500">{stat.percentage.toFixed(1)}%</p>
++                        <p className="font-black text-xl">{stat.voteCount}</p>
++                        <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Votes ({stat.percentage.toFixed(1)}%)</p>
+                       </div>
+                     </div>
+-                    <div className="h-3 overflow-hidden rounded-lg bg-slate-100">
++                    <div className="h-3 overflow-hidden rounded-full bg-slate-500/5 border border-slate-500/5">
+                       <div
+-                        className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
++                        className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 transition-all duration-1000 shadow-[0_0_10px_rgba(37,99,235,0.3)]"
+                         style={{ width: `${Math.min(stat.percentage, 100)}%` }}
+                       />
+                     </div>
+@@ -259,46 +238,53 @@ export default function ResultsPage() {
+             </div>
+ 
+             {leadingCandidate && leadingCandidate.voteCount > 0 && (
+-              <div className="rounded-2xl border border-yellow-200 bg-gradient-to-r from-yellow-50 to-yellow-100 p-8 shadow-sm">
+-                <div className="flex items-center gap-6">
+-                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-yellow-200 text-yellow-900">
+-                    <CheckCircle2 className="h-8 w-8" />
++              <div className="rounded-[2.5rem] border p-8 shadow-2xl relative overflow-hidden" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-color)' }}>
++                <div className="absolute top-0 right-0 p-8 opacity-5 scale-150">
++                  <CheckCircle2 className="h-32 w-32" />
++                </div>
++                <div className="flex items-center gap-8 relative z-10">
++                  <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-500">
++                    <CheckCircle2 className="h-10 w-10" />
+                   </div>
+                   <div>
+-                    <p className="mb-1 text-sm font-semibold uppercase tracking-wider text-yellow-700">
+-                      Leading candidate
++                    <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-yellow-600/80">
++                      Overall Frontrunner
+                     </p>
+-                    <h3 className="mb-2 text-2xl font-bold text-yellow-900">{leadingCandidate.candidateName}</h3>
+-                    <p className="text-yellow-700">
+-                      {leadingCandidate.position} · <span className="font-bold">{leadingCandidate.voteCount}</span>{' '}
+-                      votes (<span className="font-bold">{leadingCandidate.percentage.toFixed(1)}%</span>)
++                    <h3 className="mb-1 text-3xl font-black tracking-tight">{leadingCandidate.candidateName}</h3>
++                    <p className="text-lg font-bold opacity-60">
++                      {leadingCandidate.position} · <span className="text-emerald-500">{leadingCandidate.voteCount}</span> votes 
++                      <span className="mx-2 opacity-20">|</span> 
++                      <span className="opacity-80">{leadingCandidate.percentage.toFixed(1)}% Turnout</span>
+                     </p>
+                   </div>
+                 </div>
+               </div>
+             )}
+ 
+-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+-              <div className="border-b border-slate-200 px-6 py-4">
+-                <h3 className="text-lg font-bold text-slate-900">Results by position</h3>
++            <div className="rounded-[2.5rem] border shadow-2xl overflow-hidden transition-all" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-color)' }}>
++              <div className="border-b border-slate-500/10 px-8 py-6 bg-slate-500/5">
++                <h3 className="text-xl font-black tracking-tight">Full Results by Position</h3>
+               </div>
+-              <div className="space-y-6 p-6">
++              <div className="divide-y divide-slate-500/10">
+                 {statsByPosition.map(([position, data]) => (
+-                  <section key={position}>
+-                    <h4 className="mb-3 text-base font-bold text-slate-900">{position}</h4>
+-                    <div className="space-y-3">
++                  <section key={position} className="p-8">
++                    <div className="flex items-center gap-3 mb-6">
++                      <div className="h-2 w-2 rounded-full bg-blue-500" />
++                      <h4 className="text-lg font-black tracking-tight uppercase">{position}</h4>
++                    </div>
++                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                       {data.stats.map((stat) => (
+                         <div
+                           key={stat.candidateId}
+-                          className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
++                          className="flex items-center justify-between rounded-[1.5rem] border p-5 transition-all hover:scale-[1.02] bg-slate-500/5"
++                          style={{ borderColor: 'var(--border-color)' }}
+                         >
+                           <div>
+-                            <p className="font-semibold text-slate-900">{stat.candidateName}</p>
+-                            <p className="text-xs text-slate-500">{stat.voteCount === 1 ? 'vote' : 'votes'}</p>
++                            <p className="font-black">{stat.candidateName}</p>
++                            <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{stat.voteCount === 1 ? '1 vote' : `${stat.voteCount} votes`}</p>
+                           </div>
+                           <div className="text-right">
+-                            <p className="font-bold text-slate-900">{stat.voteCount}</p>
+-                            <p className="text-xs text-slate-500">{stat.percentage.toFixed(1)}%</p>
++                            <p className="font-black text-xl text-blue-500">{stat.percentage.toFixed(1)}%</p>
+                           </div>
+                         </div>
+                       ))}
+@@ -313,3 +299,19 @@ export default function ResultsPage() {
+     </AdminLayout>
+   );
+ }
++
++function StatMiniCard({ label, value, icon }: any) {
++  return (
++    <div className="rounded-[2rem] border p-6 shadow-xl transition-all hover:scale-105" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-color)' }}>
++      <div className="flex items-center justify-between">
++        <div>
++          <p className="mb-1 text-[10px] font-black uppercase tracking-[0.15em] opacity-40">{label}</p>
++          <p className="text-4xl font-black tracking-tight">{value}</p>
++        </div>
++        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-500/5 border border-slate-500/5">
++          {icon}
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/app/globals.css b/app/globals.css
+index 1095ed1..80f27b9 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -3,17 +3,21 @@
+ @tailwind utilities;
+ 
+ :root {
++  --bg-color: #F8FAFC;
++  --text-color: #0F172A;
++  --primary-color: #2563EB;
++  --accent-color: #60A5FA;
++  --card-bg: #FFFFFF;
++  --border-color: #E2E8F0;
++  
+   --foreground-rgb: 0, 0, 0;
+   --background-start-rgb: 214, 219, 220;
+   --background-end-rgb: 255, 255, 255;
+ }
+ 
+-@media (prefers-color-scheme: dark) {
+-  :root {
+-    --foreground-rgb: 255, 255, 255;
+-    --background-start-rgb: 0, 0, 0;
+-    --background-end-rgb: 0, 0, 0;
+-  }
++body {
++  background-color: var(--bg-color);
++  color: var(--text-color);
+ }
+ 
+ @layer base {
+@@ -128,22 +132,6 @@
+     content-visibility: auto;
+     contain-intrinsic-size: 320px;
+   }
+-
+-  .glass-panel {
+-    background:
+-      linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.72)),
+-      rgba(255, 255, 255, 0.75);
+-    backdrop-filter: blur(24px);
+-  }
+-
+-  .progress-shimmer {
+-    background-size: 200% 100%;
+-    animation: progress-shimmer 2.8s linear infinite;
+-  }
+-
+-  .accordion-panel {
+-    transform-origin: top;
+-  }
+ }
+ 
+ @keyframes fade-in {
+@@ -190,15 +178,6 @@
+   }
+ }
+ 
+-@keyframes progress-shimmer {
+-  from {
+-    background-position: 200% 0;
+-  }
+-  to {
+-    background-position: -200% 0;
+-  }
+-}
+-
+ @media (prefers-reduced-motion: reduce) {
+   html {
+     scroll-behavior: auto;
+diff --git a/app/layout.tsx b/app/layout.tsx
+index db0b597..81f6184 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -2,6 +2,8 @@ import './globals.css';
+ import type { Metadata } from 'next';
+ import { Inter } from 'next/font/google';
+ import { AuthProvider } from '@/components/auth-provider';
++import { ThemeProvider } from '@/components/theme-provider';
++import { BrandingProvider } from '@/components/branding-provider';
+ 
+ const inter = Inter({ subsets: ['latin'] });
+ 
+@@ -24,7 +26,11 @@ export default function RootLayout({
+   return (
+     <html lang="en">
+       <body className={inter.className}>
+-        <AuthProvider>{children}</AuthProvider>
++        <ThemeProvider>
++          <BrandingProvider>
++            <AuthProvider>{children}</AuthProvider>
++          </BrandingProvider>
++        </ThemeProvider>
+       </body>
+     </html>
+   );
+diff --git a/app/login/page.tsx b/app/login/page.tsx
+index 05b492f..87db870 100644
+--- a/app/login/page.tsx
++++ b/app/login/page.tsx
+@@ -109,247 +109,175 @@ export default function LoginPage() {
+     (loginMode === 'rollno' && (!rollNo.trim() || !dob));
+ 
+   return (
+-    <div className="min-h-screen bg-[#0a0f1e] flex flex-col items-center justify-start pt-12 md:pt-16 px-4">
+-      {/* Background with minimal institutional lighting */}
+-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[500px] bg-blue-900/10 rounded-full blur-[120px]" />
+-      </div>
+-
+-      <div className="relative z-10 w-full max-w-md">
+-        {/* Header: Official Branding */}
+-        <div className="text-center mb-8 animate-fade-in">
++    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
++      <div className="w-full max-w-md">
++        <div className="text-center mb-8">
+           <div className="inline-block relative mb-4">
+             <Image
+               src="/logo.png"
+               alt="CMR Logo"
+               width={260}
+               height={260}
+-              className="w-44 md:w-52 mx-auto object-contain drop-shadow-2xl"
++              className="w-44 md:w-52 mx-auto object-contain"
+               priority
+             />
+           </div>
+-          <div className="mt-1 space-y-1">
+-            <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+-              CMR Elections
+-            </h1>
+-            <p className="text-slate-400 text-sm md:text-base font-medium">
+-              Official Student Council Elections 2026
+-            </p>
+-          </div>
++          <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
++            CMR Elections
++          </h1>
++          <p className="text-slate-500 font-medium mt-1">
++            Official Student Council Elections 2026
++          </p>
+         </div>
+ 
+-        {/* Tab Navigation: Minimalist */}
+-        <div className="flex p-1 gap-1 mb-6 bg-white/[0.03] border border-white/5 rounded-2xl">
+-          {[
+-            { id: 'student', label: 'Student Login' },
+-            { id: 'rollno', label: 'Roll Number' },
+-            { id: 'admin', label: 'Admin Access' },
+-          ].map((tab) => (
+-            <button
+-              key={tab.id}
+-              type="button"
+-              onClick={() => switchMode(tab.id as any)}
+-              className={`flex-1 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+-                loginMode === tab.id
+-                  ? 'bg-white/10 text-white shadow-sm'
+-                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.05]'
+-              }`}
+-            >
+-              {tab.label}
+-            </button>
+-          ))}
+-        </div>
++        <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200">
++          <div className="flex p-1 bg-slate-100 rounded-2xl mb-8">
++            {[
++              { id: 'student', label: 'Student' },
++              { id: 'rollno', label: 'Roll No' },
++              { id: 'admin', label: 'Admin' },
++            ].map((tab) => (
++              <button
++                key={tab.id}
++                type="button"
++                onClick={() => switchMode(tab.id as any)}
++                className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
++                  loginMode === tab.id
++                    ? 'bg-blue-600 text-white shadow-md'
++                    : 'text-slate-500 hover:text-slate-700'
++                }`}
++              >
++                {tab.label}
++              </button>
++            ))}
++          </div>
+ 
+-        {/* Portal Card: Institutional Style */}
+-        <div className="bg-[#0f172a]/80 backdrop-blur-md border border-white/10 rounded-[2.5rem] p-8 md:p-12 shadow-2xl animate-fade-in animation-delay-200 min-h-[380px] flex flex-col justify-center">
+-          
+           {error === 'invalid_domain' && (
+-            <div className="mb-6 p-4 bg-red-500/5 border border-red-500/20 rounded-2xl text-red-400 text-xs font-medium text-center flex items-center justify-center gap-2">
+-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+-              <span>Use your official @cmr.ac.in account only.</span>
++            <div className="mb-6 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm font-medium text-center">
++              Please use your @cmr.ac.in account.
+             </div>
+           )}
+ 
+           {message && (
+             <div
+-              className={`mb-6 p-4 rounded-2xl text-xs font-medium flex items-start gap-2 ${
++              className={`mb-6 p-4 rounded-xl text-sm font-medium flex items-center gap-3 ${
+                 message.type === 'error'
+-                  ? 'bg-red-500/5 border border-red-500/20 text-red-400'
+-                  : 'bg-emerald-500/5 border border-emerald-500/20 text-emerald-400'
++                  ? 'bg-rose-50 text-rose-700 border border-rose-100'
++                  : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+               }`}
+               role="alert"
+             >
+-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+-              <span>{message.text}</span>
++              <AlertCircle className="w-5 h-5 shrink-0" />
++              <p>{message.text}</p>
+             </div>
+           )}
+ 
+           {loginMode === 'student' && (
+-            <div className="space-y-10 py-4">
+-              <div className="text-center">
+-                <h2 className="text-2xl font-bold text-white mb-3">Student Login</h2>
+-                <p className="text-slate-400 text-sm leading-relaxed max-w-[280px] mx-auto">
+-                  Sign in using your official CMR Google account to participate in the Student Council Elections.
+-                </p>
+-              </div>
+-
+-              <div className="space-y-8">
+-                <button
+-                  type="button"
+-                  onClick={handleGoogleLogin}
+-                  disabled={isLoading}
+-                  className="w-full flex items-center justify-center gap-4 py-4 px-6 rounded-2xl font-bold text-slate-900 bg-white hover:bg-slate-100 transition-all disabled:opacity-50 text-base shadow-xl"
+-                >
+-                  {isLoading ? (
+-                    <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+-                  ) : (
+-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.27.81-.57z"/>
+-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+-                    </svg>
+-                  )}
+-                  Continue with CMR Google Account
+-                </button>
+-
+-                <div className="space-y-6">
+-                  <div className="grid grid-cols-1 gap-3 px-1">
+-                    <div className="flex items-center gap-3">
+-                      <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+-                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+-                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+-                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.27.81-.57z" />
+-                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+-                      </svg>
+-                      <span className="text-[11px] font-bold text-slate-300 tracking-wider uppercase">Google Authentication</span>
+-                    </div>
+-                    <div className="flex items-center gap-3">
+-                      <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+-                        <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.51 12.09 1.011 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701z" />
+-                      </svg>
+-                      <span className="text-[11px] font-bold text-slate-300 tracking-wider uppercase">Secured by Apple</span>
+-                    </div>
+-                    <div className="flex items-center gap-3">
+-                      <Lock className="w-4 h-4 text-slate-400" />
+-                      <span className="text-[11px] font-bold text-slate-300 tracking-wider uppercase">High security</span>
+-                    </div>
+-                  </div>
+-
+-                  <div className="pt-6 text-center border-t border-white/5">
+-                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+-                      Protected by Google, Apple, Supabase authentication, HTTPS encryption
+-                    </p>
+-                    <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
+-                      Only verified <span className="text-slate-400">@cmr.ac.in</span> accounts can access the voting portal.
+-                    </p>
+-                  </div>
+-                </div>
+-              </div>
++            <div className="space-y-6">
++              <button
++                type="button"
++                onClick={handleGoogleLogin}
++                disabled={isLoading}
++                className="w-full flex items-center justify-center gap-3 py-4 px-6 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50 shadow-sm"
++              >
++                {isLoading ? (
++                  <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
++                ) : (
++                  <svg className="w-5 h-5" viewBox="0 0 24 24">
++                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
++                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
++                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
++                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
++                  </svg>
++                )}
++                Sign in with Google
++              </button>
++              <p className="text-xs text-center text-slate-500 font-medium">
++                Use your official college email address.
++              </p>
+             </div>
+           )}
+ 
+           {loginMode === 'rollno' && (
+-            <div className="space-y-8">
+-              <div className="text-center">
+-                <h2 className="text-2xl font-bold text-white mb-2">Roll Number Login</h2>
+-                <p className="text-slate-400 text-sm">Secure fallback authentication</p>
++            <form onSubmit={handleRollNoLogin} className="space-y-4">
++              <div>
++                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Roll Number</label>
++                <div className="relative">
++                  <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
++                  <input
++                    type="text"
++                    value={rollNo}
++                    onChange={(e) => setRollNo(e.target.value)}
++                    placeholder="Enter your roll number"
++                    className={`w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm focus:border-blue-500 outline-none transition-all`}
++                  />
++                </div>
+               </div>
+-
+-              <form onSubmit={handleRollNoLogin} className="space-y-4">
+-                <div className="space-y-4">
+-                  <div className="relative">
+-                    <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+-                    <input
+-                      type="text"
+-                      value={rollNo}
+-                      onChange={(e) => setRollNo(e.target.value)}
+-                      placeholder="Roll Number"
+-                      className={`w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all ${
+-                        fieldErrors.roll_no ? 'border-red-500/40 ring-red-500/10' : ''
+-                      }`}
+-                    />
+-                  </div>
+-                  <div className="relative">
+-                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+-                    <input
+-                      type="date"
+-                      value={dob}
+-                      max={maxDob}
+-                      onChange={(e) => setDob(e.target.value)}
+-                      className={`w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all [color-scheme:dark] ${
+-                        fieldErrors.dob ? 'border-red-500/40 ring-red-500/10' : ''
+-                      }`}
+-                    />
+-                  </div>
++              <div>
++                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Date of Birth</label>
++                <div className="relative">
++                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
++                  <input
++                    type="date"
++                    value={dob}
++                    max={maxDob}
++                    onChange={(e) => setDob(e.target.value)}
++                    className={`w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm focus:border-blue-500 outline-none transition-all`}
++                  />
+                 </div>
+-
+-                <button
+-                  type="submit"
+-                  disabled={isSubmitDisabled}
+-                  className="w-full py-3.5 px-4 rounded-2xl font-bold text-white bg-slate-800 border border-slate-700 hover:bg-slate-700 transition-all disabled:opacity-50 text-sm tracking-wide shadow-lg"
+-                >
+-                  {isLoading ? 'Verifying...' : 'Login with Roll Number'}
+-                </button>
+-              </form>
+-            </div>
++              </div>
++              <button
++                type="submit"
++                disabled={isSubmitDisabled}
++                className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all disabled:opacity-50"
++              >
++                {isLoading ? 'Verifying...' : 'Login with Roll Number'}
++              </button>
++            </form>
+           )}
+ 
+           {loginMode === 'admin' && (
+-            <div className="space-y-8">
+-              <div className="text-center">
+-                <h2 className="text-2xl font-bold text-white mb-2">Admin Access</h2>
+-                <p className="text-slate-400 text-sm">Election Commission Credentials</p>
++            <form onSubmit={handleAdminLogin} className="space-y-4">
++              <div>
++                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Admin Email</label>
++                <div className="relative">
++                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
++                  <input
++                    type="email"
++                    value={email}
++                    onChange={(e) => setEmail(e.target.value)}
++                    placeholder="admin@example.com"
++                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm focus:border-blue-500 outline-none transition-all"
++                  />
++                </div>
+               </div>
+-
+-              <form onSubmit={handleAdminLogin} className="space-y-4">
+-                <div className="space-y-4">
+-                  <div className="relative">
+-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+-                    <input
+-                      type="email"
+-                      value={email}
+-                      onChange={(e) => setEmail(e.target.value)}
+-                      placeholder="Admin Email"
+-                      className="w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all"
+-                    />
+-                  </div>
+-                  <div className="relative">
+-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+-                    <input
+-                      type="password"
+-                      value={password}
+-                      onChange={(e) => setPassword(e.target.value)}
+-                      placeholder="Password"
+-                      className="w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-sm text-white placeholder-slate-700 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all"
+-                    />
+-                  </div>
++              <div>
++                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Password</label>
++                <div className="relative">
++                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
++                  <input
++                    type="password"
++                    value={password}
++                    onChange={(e) => setPassword(e.target.value)}
++                    placeholder="••••••••"
++                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm focus:border-blue-500 outline-none transition-all"
++                  />
+                 </div>
+-
+-                <button
+-                  type="submit"
+-                  disabled={isSubmitDisabled}
+-                  className="w-full py-3.5 px-4 rounded-2xl font-bold text-white bg-blue-900 border border-blue-800 hover:bg-blue-800 transition-all disabled:opacity-50 text-sm tracking-wide shadow-lg"
+-                >
+-                  {isLoading ? 'Authenticating...' : 'Sign in as Admin'}
+-                </button>
+-              </form>
+-            </div>
++              </div>
++              <button
++                type="submit"
++                disabled={isSubmitDisabled}
++                className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all disabled:opacity-50"
++              >
++                {isLoading ? 'Authenticating...' : 'Sign in as Admin'}
++              </button>
++            </form>
+           )}
+         </div>
+ 
+-        {/* Official Footer: Minimalist */}
+-        <div className="mt-12 text-center animate-fade-in animation-delay-400">
+-          <div className="inline-block py-6 px-8 rounded-[2rem] bg-white/[0.02] border border-white/5 w-full">
+-            <p className="text-slate-500 text-[10px] font-bold mb-1 uppercase tracking-wider">Designed & Developed by</p>
+-            <p className="text-white text-xl font-black tracking-tighter uppercase leading-none">Yeshwanth B</p>
+-          </div>
+-          
+-          <div className="mt-8 opacity-20">
+-             <div className="h-px w-16 bg-white mx-auto mb-4" />
+-             <p className="text-white text-[9px] font-bold uppercase tracking-[0.4em]">Official Student Council Elections 2026</p>
+-          </div>
+-        </div>
++        <p className="mt-8 text-center text-slate-400 text-xs font-medium">
++          Official Student Council Elections | Designed by Yeshwanth B
++        </p>
+       </div>
+     </div>
+   );
+diff --git a/app/page.tsx b/app/page.tsx
+index 8432bc8..b1cb4c3 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -27,8 +27,14 @@ import {
+   Droplets,
+   Leaf,
+   Wind,
++  Megaphone,
++  AlertCircle,
++  ShieldAlert,
++  Moon,
++  Sun
+ } from 'lucide-react';
+ import { useAuth } from '@/components/auth-provider';
++import { useTheme } from '@/components/theme-provider';
+ import { CandidateCard } from '@/components/candidate-card';
+ import { ErrorModal } from '@/components/error-modal';
+ import { VoteConfirmModal } from '@/components/vote-confirm-modal';
+@@ -36,6 +42,7 @@ import { VoteSuccessModal } from '@/components/vote-success-modal';
+ import { fetchCandidates } from '@/lib/candidates';
+ import { supabase, type Candidate, type Vote, type House } from '@/lib/supabase';
+ import { fetchHouses, getHouseTheme, isCandidateHouse, hexToRgb } from '@/lib/houses';
++import { toast } from 'sonner';
+ 
+ type SupabaseErrorLike = {
+   code?: string;
+@@ -49,11 +56,11 @@ type PositionGroup = {
+   candidates: Candidate[];
+ };
+ 
+-type PositionVisual = {
+-  icon: LucideIcon;
+-  tint: string;
+-  surface: string;
+-  border: string;
++type Announcement = {
++  id: string;
++  title: string;
++  message: string;
++  created_at: string;
+ };
+ 
+ function getDisplayName(user: { email?: string | null; user_metadata?: Record<string, unknown> } | null) {
+@@ -114,7 +121,6 @@ function groupCandidatesByPosition(candidates: Candidate[]) {
+     const position = candidate.position.trim() || 'Unassigned Position';
+     const current = grouped.get(position) ?? { candidates: [], order: candidate.display_order ?? 0 };
+     current.candidates.push(candidate);
+-    // Keep the minimum order found for this position just in case of inconsistency
+     if (candidate.display_order < current.order) {
+       current.order = candidate.display_order;
+     }
+@@ -134,60 +140,9 @@ function groupCandidatesByPosition(candidates: Candidate[]) {
+     })) satisfies PositionGroup[];
+ }
+ 
+-function getPositionVisual(position: string): PositionVisual {
+-  const normalized = position.toLowerCase();
+-
+-  // Premium Dark Navy Blue theme for all positions as requested
+-  if (normalized.includes('president') || normalized.includes('head')) {
+-    return {
+-      icon: Crown,
+-      tint: 'text-amber-400',
+-      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+-      border: 'border-amber-400/30',
+-    };
+-  }
+-
+-  if (normalized.includes('vice')) {
+-    return {
+-      icon: GraduationCap,
+-      tint: 'text-blue-300',
+-      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+-      border: 'border-blue-400/30',
+-    };
+-  }
+-
+-  if (normalized.includes('secretary')) {
+-    return {
+-      icon: FileText,
+-      tint: 'text-blue-300',
+-      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+-      border: 'border-blue-400/30',
+-    };
+-  }
+-
+-  if (normalized.includes('treasurer')) {
+-    return {
+-      icon: Wallet,
+-      tint: 'text-blue-300',
+-      surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+-      border: 'border-blue-400/30',
+-    };
+-  }
+-
+-  return {
+-    icon: Briefcase,
+-    tint: 'text-blue-300',
+-    surface: 'from-[#001F3F] via-[#001F3F] to-[#002B5B]',
+-    border: 'border-blue-400/30',
+-  };
+-}
+-
+-function getNextPendingPosition(candidateGroups: PositionGroup[], completedPositions: Set<string>) {
+-  return candidateGroups.find((group) => !completedPositions.has(group.position))?.position ?? null;
+-}
+-
+ export default function HomePage() {
+   const { user, loading, signOut, isAdmin, isGuest } = useAuth();
++  const { theme, setTheme, isDark } = useTheme();
+   const router = useRouter();
+ 
+   const [candidates, setCandidates] = useState<Candidate[]>([]);
+@@ -201,23 +156,16 @@ export default function HomePage() {
+   const [successCandidate, setSuccessCandidate] = useState<Candidate | null>(null);
+   const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
+   const [openPosition, setOpenPosition] = useState<string | null>(null);
+-  const [hasStartedVoting, setHasStartedVoting] = useState(false);
+-  const [isReviewScreenOpen, setIsReviewScreenOpen] = useState(false);
+-  const [showValidationErrors, setShowValidationErrors] = useState(false);
+   const [isSelectingHouse, setIsSelectingHouse] = useState(false);
+   const [houseToConfirm, setHouseToConfirm] = useState<string | null>(null);
+-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+-  const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
+-
+-  const TIMER_DEFAULTS = useMemo(
+-    () => ({
+-      timer_enabled: false,
+-      timer_duration: 60,
+-      timer_status: 'stopped' as 'stopped' | 'running' | 'paused',
+-      timer_start_time: null as string | null,
+-    }),
+-    []
+-  );
++  
++  // Election State
++  const [electionStatus, setElectionStatus] = useState<'open' | 'closed' | 'scheduled'>('closed');
++  const [electionSchedule, setElectionSchedule] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
++  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
++  const [sessionTimeout, setSessionTimeout] = useState<number>(10);
++  const [lastActivity, setLastActivity] = useState<number>(Date.now());
++  const [electionRemainingTime, setElectionRemainingTime] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     if (!loading && !user && !isGuest) {
+@@ -225,78 +173,99 @@ export default function HomePage() {
+     }
+   }, [user, isGuest, loading, router]);
+ 
+-  // Timer Logic
++  // Session Timeout Logic
+   useEffect(() => {
+-    const fetchTimer = async () => {
+-      const settingKeys = Object.keys(TIMER_DEFAULTS);
+-      const { data, error } = await supabase
+-        .from('election_settings')
+-        .select('key, value')
+-        .in('key', settingKeys);
+-
+-      if (error) {
+-        console.error('Error fetching timer settings:', error);
+-        setTimerStatus('stopped');
+-        setTimeLeft(null);
+-        return;
++    if (!user || isGuest) return;
++
++    const timeoutMs = sessionTimeout * 60 * 1000;
++    const checkTimeout = () => {
++      if (Date.now() - lastActivity > timeoutMs) {
++        toast.error("Session expired due to inactivity.");
++        setSelectedCandidateIds({});
++        signOut().then(() => router.replace('/login'));
+       }
++    };
+ 
+-      const settingsMap = new Map((data ?? []).map((item) => [item.key, item.value]));
+-      for (const key of settingKeys) {
+-        if (!settingsMap.has(key)) {
+-          settingsMap.set(key, TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS]);
+-        }
+-      }
++    const interval = setInterval(checkTimeout, 10000);
++    const updateActivity = () => setLastActivity(Date.now());
+ 
+-      const enabledValue = settingsMap.get('timer_enabled');
+-      const durationValue = settingsMap.get('timer_duration');
+-      const statusValue = settingsMap.get('timer_status');
+-      const startTimeValue = settingsMap.get('timer_start_time');
+-
+-      const enabled = enabledValue === true || enabledValue === 'true';
+-      const duration = Number(durationValue ?? TIMER_DEFAULTS.timer_duration);
+-      const status = (statusValue ?? TIMER_DEFAULTS.timer_status) as 'stopped' | 'running' | 'paused';
+-      const startTime = startTimeValue ? new Date(String(startTimeValue)).getTime() : null;
+-
+-      setTimerStatus(status);
+-
+-      if (enabled && status === 'running' && startTime) {
+-        const now = Date.now();
+-        const elapsed = Math.floor((now - startTime) / 1000);
+-        const remaining = Math.max(0, duration - elapsed);
+-        setTimeLeft(remaining);
+-      } else if (enabled && status === 'paused') {
+-        // For simplicity, we just show the full duration or some fixed value when paused
+-        // Real pause logic would require tracking cumulative elapsed time
+-        setTimeLeft(duration);
+-      } else {
+-        setTimeLeft(null);
+-      }
+-    };
++    window.addEventListener('mousemove', updateActivity);
++    window.addEventListener('keydown', updateActivity);
++    window.addEventListener('touchstart', updateActivity);
+ 
+-    fetchTimer();
+-    const interval = setInterval(fetchTimer, 5000); // Polling for timer status changes
+-    return () => clearInterval(interval);
+-  }, [TIMER_DEFAULTS]);
++    return () => {
++      clearInterval(interval);
++      window.removeEventListener('mousemove', updateActivity);
++      window.removeEventListener('keydown', updateActivity);
++      window.removeEventListener('touchstart', updateActivity);
++    };
++  }, [user, isGuest, lastActivity, sessionTimeout, signOut, router]);
+ 
++  // Election Status & Schedule Logic
+   useEffect(() => {
+-    if (timerStatus === 'running' && timeLeft !== null && timeLeft > 0) {
+-      const timer = setInterval(() => {
+-        setTimeLeft((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+-      }, 1000);
+-      return () => clearInterval(timer);
+-    }
+-  }, [timerStatus, timeLeft]);
++    const fetchElectionStatus = async () => {
++      try {
++        const { data, error } = await supabase.from('election_settings').select('key, value');
++        if (error) throw error;
++
++        const settings = new Map(data.map(i => [i.key, i.value]));
++        const status = settings.get('election_status') as any || 'closed';
++        const start = settings.get('election_start_time');
++        const end = settings.get('election_end_time');
++        const timeout = Number(settings.get('voting_session_timeout') || 10);
++
++        setSessionTimeout(timeout);
++        setElectionSchedule({ start, end });
++
++        const now = new Date();
++        let effectiveStatus = status;
++
++        if (status === 'scheduled' && start && end) {
++          const startDate = new Date(start);
++          const endDate = new Date(end);
++          if (now >= startDate && now < endDate) {
++            effectiveStatus = 'open';
++          } else if (now >= endDate) {
++            effectiveStatus = 'closed';
++          }
++        } else if (status === 'open' && end) {
++          if (now >= new Date(end)) {
++            effectiveStatus = 'closed';
++          }
++        }
+ 
+-  useEffect(() => {
+-    if (!loading && user) {
+-      const isCollegeEmail = user.email?.endsWith('@cmr.ac.in');
+-      const isRollStudent = user.user_metadata?.login_type === 'roll_student';
+-      if (!isCollegeEmail && !isRollStudent) {
+-        signOut().then(() => router.replace('/login?error=invalid_domain'));
++        setElectionStatus(effectiveStatus);
++
++        if (effectiveStatus === 'open' && end) {
++          const diff = new Date(end).getTime() - now.getTime();
++          if (diff > 0) {
++            const h = Math.floor(diff / 3600000);
++            const m = Math.floor((diff % 3600000) / 60000);
++            setElectionRemainingTime(`${h}h ${m}m`);
++          } else {
++            setElectionRemainingTime(null);
++          }
++        } else {
++          setElectionRemainingTime(null);
++        }
++
++        const { data: annData } = await supabase
++          .from('election_announcements')
++          .select('*')
++          .eq('is_active', true)
++          .order('created_at', { ascending: false });
++        
++        setAnnouncements(annData || []);
++
++      } catch (err) {
++        console.error('Error fetching election status:', err);
+       }
+-    }
+-  }, [user, loading, signOut, router]);
++    };
++
++    fetchElectionStatus();
++    const interval = setInterval(fetchElectionStatus, 60000);
++    return () => clearInterval(interval);
++  }, []);
+ 
+   const fetchData = useCallback(async (forcedHouse?: string) => {
+     if (!user && !isGuest) return;
+@@ -327,23 +296,9 @@ export default function HomePage() {
+         throw new Error(buildBallotErrorMessage('Candidate query', candidatesRes.error));
+       }
+ 
+-      if (housesRes.error) {
+-        console.error('Error fetching houses:', housesRes.error);
+-      }
+-
+-      if (votesRes.error) {
+-        throw new Error(buildBallotErrorMessage('Vote history query', votesRes.error));
+-      }
+-
+-      if (studentRes?.error) {
+-        throw new Error(buildBallotErrorMessage('Student record query', studentRes.error));
+-      }
+-
+       setHouses(housesRes.data ?? []);
+ 
+-      // Check if student has already voted
+       if (studentRow?.has_voted) {
+-        console.log('Student has already voted, redirecting to thank you');
+         router.replace('/thank-you');
+         return;
+       }
+@@ -351,33 +306,26 @@ export default function HomePage() {
+       let filteredCandidates = candidatesRes.data ?? [];
+       let currentStudentHouse: string | null = forcedHouse || null;
+       
+-      // Database is the single source of truth for authenticated users
+       if (user && studentRow?.class) {
+         currentStudentHouse = studentRow.class;
+-        // Sync localStorage
+         if (currentStudentHouse) {
+           const key = `selectedHouse_${user.id}`;
+           localStorage.setItem(key, currentStudentHouse);
+         }
+       } else if (!currentStudentHouse) {
+-        // Fallback to localStorage only if DB is empty or user is guest
+         const key = user ? `selectedHouse_${user.id}` : 'selectedHouse';
+         currentStudentHouse = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+       }
+ 
+-      // If authenticated but no house selected in DB or localStorage, show selection screen
+       if (user && !currentStudentHouse) {
+         setIsSelectingHouse(true);
+       } else {
+         setIsSelectingHouse(false);
+-        
+-        // Default for guests if no house selected
+         if (isGuest && !currentStudentHouse) {
+           currentStudentHouse = 'Agni House';
+         }
+       }
+ 
+-      // Strict Filtering: Show General candidates ('None') and ONLY student's house candidates
+       filteredCandidates = filteredCandidates.filter(
+         c => c.house === 'None' || (currentStudentHouse && c.house === currentStudentHouse)
+       );
+@@ -405,95 +353,43 @@ export default function HomePage() {
+   const candidateGroups = useMemo(() => groupCandidatesByPosition(candidates), [candidates]);
+   const votesByPosition = useMemo(() => new Map(votes.map((vote) => [vote.position, vote])), [votes]);
+   const votedCandidateIds = useMemo(() => new Set(votes.map((vote) => vote.candidate_id)), [votes]);
+-  const totalPositions = candidateGroups.length;
+-  const completedPositions = votesByPosition.size;
+-  const progressPercentage = totalPositions === 0 ? 0 : Math.round((completedPositions / totalPositions) * 100);
+-  const firstPendingPosition = useMemo(
+-    () => getNextPendingPosition(candidateGroups, new Set(votesByPosition.keys())),
+-    [candidateGroups, votesByPosition]
+-  );
+-  const allPositionsCompleted = totalPositions > 0 && completedPositions === totalPositions;
+-
++  
+   useEffect(() => {
+     if (candidateGroups.length > 0 && !openPosition) {
+-      setOpenPosition(firstPendingPosition ?? candidateGroups[0].position);
+-    }
+-  }, [candidateGroups, firstPendingPosition, openPosition]);
+-
+-  useEffect(() => {
+-    if (!candidateGroups.length || !openPosition) {
+-      return;
++      setOpenPosition(candidateGroups[0].position);
+     }
+-
+-    if (votesByPosition.has(openPosition) && firstPendingPosition) {
+-      setOpenPosition(firstPendingPosition);
+-    }
+-  }, [candidateGroups.length, firstPendingPosition, openPosition, votesByPosition]);
+-
+-  const votedCandidates = useMemo(
+-    () =>
+-      votes
+-        .map((vote) => candidates.find((candidate) => candidate.id === vote.candidate_id) ?? null)
+-        .filter((candidate): candidate is Candidate => candidate !== null),
+-    [candidates, votes]
+-  );
+-  const recordedSelections = useMemo(
+-    () =>
+-      candidateGroups
+-        .map((group) => {
+-          const recordedVote = votesByPosition.get(group.position);
+-          if (!recordedVote) {
+-            return null;
+-          }
+-
+-          const candidate = candidates.find((item) => item.id === recordedVote.candidate_id) ?? null;
+-          if (!candidate) {
+-            return null;
+-          }
+-
+-          return { position: group.position, candidate };
+-        })
+-        .filter((item): item is { position: string; candidate: Candidate } => item !== null),
+-    [candidateGroups, candidates, votesByPosition]
+-  );
++  }, [candidateGroups, openPosition]);
+ 
+   const handleHouseSelect = async (house: string) => {
+     if (user) {
+       try {
+         setVotingLoading(true);
+-        const fetchResult = await supabase
++        const { data: existing, error: fetchError } = await supabase
+           .from('students')
+           .select('id, class')
+           .eq('auth_user_id', user.id)
+           .maybeSingle();
+ 
+-        const { data: existing, error: fetchError } = fetchResult;
+-
+         if (fetchError) throw fetchError;
+         
+-        // Use existing class if available, otherwise use selected house
+-        const finalHouse = (existing && existing.class && existing.class !== '') ? existing.class : house;
++        const finalHouse = (existing && existing.class) ? existing.class : house;
+ 
+-        // Only update if record exists and class is not set
+-        if (existing && (!existing.class || existing.class === '')) {
+-          const updateResult = await supabase
++        if (existing && (!existing.class)) {
++          const { error: updateError } = await supabase
+             .from('students')
+             .update({ class: house })
+             .eq('auth_user_id', user.id);
+ 
+-          if (updateResult.error) throw updateResult.error;
++          if (updateError) throw updateError;
+         }
+ 
+-        // Save selected house in localStorage
+         const key = `selectedHouse_${user.id}`;
+         localStorage.setItem(key, finalHouse);
+         
+-        // Update React state
+         setSelectedHouse(finalHouse);
+         setIsSelectingHouse(false);
+         setHouseToConfirm(null);
+ 
+-        // Immediately continue to the voting page
+         await fetchData(finalHouse);
+       } catch (err) {
+         console.error('House selection error:', err);
+@@ -505,7 +401,6 @@ export default function HomePage() {
+         setVotingLoading(false);
+       }
+     } else {
+-      // Guest mode
+       const key = 'selectedHouse';
+       localStorage.setItem(key, house);
+       setSelectedHouse(house);
+@@ -522,8 +417,7 @@ export default function HomePage() {
+       setConfirmCandidate(null);
+       setErrorModal({
+         title: 'Login Required',
+-        message:
+-          "You're currently previewing the election. Please log in with your student credentials to cast an official vote.",
++        message: "You're currently previewing the election. Please log in with your student credentials to cast an official vote.",
+       });
+       return;
+     }
+@@ -541,9 +435,6 @@ export default function HomePage() {
+ 
+     setVotingLoading(true);
+     try {
+-      const nextPendingPosition = candidateGroups.find(
+-        (group) => group.position !== confirmCandidate.position && !votesByPosition.has(group.position)
+-      )?.position;
+       const { data, error } = await supabase
+         .from('votes')
+         .insert({
+@@ -557,16 +448,7 @@ export default function HomePage() {
+ 
+       if (error) throw error;
+ 
+-      const recordedVote =
+-        data ??
+-        ({
+-          id: `${user.id}-${confirmCandidate.id}`,
+-          voter_id: user.id,
+-          voter_email: user.email ?? '',
+-          candidate_id: confirmCandidate.id,
+-          position: confirmCandidate.position,
+-          created_at: new Date().toISOString(),
+-        } satisfies Vote);
++      const recordedVote = data as Vote;
+ 
+       setVotes((current) => [...current, recordedVote].sort((a, b) => a.position.localeCompare(b.position)));
+       setSuccessCandidate(confirmCandidate);
+@@ -583,15 +465,11 @@ export default function HomePage() {
+         )
+       );
+       setConfirmCandidate(null);
+-      setOpenPosition(nextPendingPosition ?? null);
+-      setHasStartedVoting(true);
+-      setIsReviewScreenOpen(!nextPendingPosition);
+     } catch (err) {
+       console.error('Vote submission error:', err);
+       setErrorModal({
+         title: 'Voting Error',
+-        message:
+-          'Your vote could not be submitted. If you already voted, the system will keep your original ballot safe.',
++        message: 'Your vote could not be submitted. If you already voted, the system will keep your original ballot safe.',
+       });
+     } finally {
+       setVotingLoading(false);
+@@ -599,63 +477,16 @@ export default function HomePage() {
+   };
+ 
+   const handleFinalBallotSubmit = async () => {
+-    if (!user || isGuest) {
+-      if (isGuest) {
+-        setErrorModal({
+-          title: 'Guest Preview',
+-          message: 'As a guest, you cannot submit a final ballot. Please log in with your student credentials.',
+-        });
+-      }
+-      return;
+-    }
++    if (!user || isGuest) return;
+ 
+     setVotingLoading(true);
+     try {
+-      console.log('FINAL SUBMIT START');
+-      console.log('AUTH USER:', user);
+-      
+-      // Get the currently selected candidates from the votes state
+-      const selectedCandidates = votes.map(v => ({
+-        position: v.position,
+-        candidate_id: v.candidate_id
+-      }));
+-      console.log('SELECTED CANDIDATES:', selectedCandidates);
+-
+-      // Verify that the user has actually cast votes for all positions
+-      // We already have candidateGroups and votesByPosition from useMemo
+-      if (votes.length < candidateGroups.length) {
+-        console.warn('Incomplete ballot:', votes.length, '/', candidateGroups.length);
+-      }
+-
+-      // 1. We don't do a bulk insert here because votes are inserted one-by-one in handleVoteConfirm
+-      // However, we can log the current votes status as "VOTES INSERT RESULT" to match user's debug request
+-      console.log('VOTES INSERT RESULT: Existing votes in state used as source of truth', votes);
+-
+-      // 2. Update has_voted in students table
+-      const updateResult = await supabase
++      const { error } = await supabase
+         .from('students')
+         .update({ has_voted: true })
+         .eq('auth_user_id', user.id);
+ 
+-      console.log('HAS_VOTED UPDATE RESULT:', updateResult);
+-      if (updateResult.error) {
+-        console.error('HAS_VOTED UPDATE ERROR:', updateResult.error);
+-        throw updateResult.error;
+-      }
+-
+-      // 3. Verify the update
+-      const verifyResult = await supabase
+-        .from('students')
+-        .select('has_voted')
+-        .eq('auth_user_id', user.id)
+-        .single();
+-      
+-      console.log('STUDENT VERIFY RESULT:', verifyResult);
+-      if (verifyResult.error) {
+-        console.error('STUDENT VERIFY ERROR:', verifyResult.error);
+-      }
+-
+-      console.log('REDIRECTING TO THANK YOU PAGE');
++      if (error) throw error;
+       router.push('/thank-you');
+     } catch (error) {
+       console.error('FINAL SUBMIT ERROR:', error);
+@@ -679,212 +510,81 @@ export default function HomePage() {
+     );
+   }
+ 
++  // Election Closed UI
++  if (electionStatus !== 'open' && !isAdmin) {
++    return (
++      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
++        <div className="max-w-md w-full text-center space-y-6">
++          <Image src="/logo.png" alt="Logo" width={120} height={120} className="mx-auto" />
++          <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200">
++            <ShieldAlert className="h-12 w-12 text-rose-600 mx-auto mb-4" />
++            <h1 className="text-2xl font-bold text-slate-900">Voting is Closed</h1>
++            <p className="mt-2 text-slate-500">The election is currently not active.</p>
++            <button onClick={() => signOut()} className="mt-6 w-full py-3 bg-slate-900 text-white font-bold rounded-xl">Sign Out</button>
++          </div>
++        </div>
++      </div>
++    );
++  }
++
++  // House Selection UI
+   if (isSelectingHouse) {
+     return (
+-      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-start bg-[#f8fafc] p-4 sm:p-8 overflow-y-auto">
+-        {/* Animated Background Elements */}
+-        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+-          <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] rounded-full bg-blue-500/5 blur-[120px]" />
+-          <div className="absolute top-[20%] -right-[5%] w-[30%] h-[30%] rounded-full bg-purple-500/5 blur-[100px]" />
+-          <div className="absolute -bottom-[10%] left-[20%] w-[35%] h-[35%] rounded-full bg-emerald-500/5 blur-[120px]" />
++      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
++        <div className="w-full max-w-2xl text-center mb-8">
++          <Image src="/logo.png" alt="Logo" width={100} height={100} className="mx-auto mb-4" />
++          <h1 className="text-2xl font-bold text-slate-900">Select Your House</h1>
++          <p className="text-slate-500 mt-1">Choose your official house to see your ballot.</p>
+         </div>
+ 
+-        <div className="w-full max-w-2xl animate-fade-in flex flex-col pt-2 sm:pt-4 relative z-10">
+-          {/* Logo & Institution Header */}
+-          <div className="flex flex-col items-center text-center mb-6 sm:mb-8">
+-            <div className="relative mb-4 h-32 w-32 sm:h-40 sm:w-40 transition-transform duration-700 hover:scale-105">
+-              <Image
+-                src="/logo.png"
+-                alt="CMR Logo"
+-                fill
+-                className="object-contain drop-shadow-2xl"
+-                priority
+-              />
+-            </div>
+-            <div className="space-y-1">
+-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">
+-                CMR National PU College
+-              </h1>
+-              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.4em] text-blue-600/60">
+-                Student Council Elections 2026
+-              </p>
+-            </div>
+-          </div>
+-          
+-          {/* Welcome Card - Glassmorphism */}
+-          <div className="mb-8 flex flex-col items-center">
+-            <div className="w-full rounded-[2.5rem] bg-white/40 backdrop-blur-xl p-8 sm:p-10 shadow-[0_8px_32px_0_rgba(15,23,42,0.08)] border border-white/60 text-center relative overflow-hidden group">
+-              <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-50" />
+-              <div className="relative z-10">
+-                <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+-                  Welcome, <span className="text-blue-600">{getDisplayName(user)}</span>
+-                </h2>
+-                
+-                <div className="mt-6 flex flex-col items-center">
+-                  <div className="inline-block px-4 py-1.5 rounded-full bg-blue-50 text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 mb-4 border border-blue-100/50">
+-                    Election Message
+-                  </div>
+-                  <p className="text-lg sm:text-xl text-slate-700 font-medium leading-relaxed max-w-lg mx-auto italic">
+-                    &quot;Your vote is your voice. Choose leaders who will shape the future of CMR.&quot;
+-                  </p>
++        <div className="grid gap-4 w-full max-w-xl">
++          {houses.map((house) => (
++            <button
++              key={house.id}
++              onClick={() => setHouseToConfirm(house.name)}
++              className="flex items-center justify-between p-6 bg-white rounded-2xl border-2 border-slate-100 hover:border-blue-600 transition-all shadow-sm"
++            >
++              <div className="flex items-center gap-4">
++                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-xl" style={{ backgroundColor: house.color }}>
++                  {house.name[0]}
+                 </div>
++                <span className="text-xl font-bold text-slate-900">{house.name}</span>
+               </div>
+-            </div>
+-          </div>
+-
+-          <div className="w-full max-w-xl mx-auto space-y-8">
+-            <div className="flex items-center gap-6">
+-              <div className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200" />
+-              <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">Select Your House</h3>
+-              <div className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200" />
+-            </div>
+-
+-            {/* Vertical House List */}
+-            <div className="space-y-4">
+-              {houses.map((house) => {
+-                const theme = getHouseTheme(house.color, house.name);
+-                const isHex = house.color.startsWith('#');
+-                const rgb = isHex ? hexToRgb(house.color) : null;
+-                const IconComp = theme.icon || Shield;
+-                
+-                // Tailored glow color based on house
+-                const glowStyle = isHex 
+-                  ? { '--glow-color': `${rgb?.r} ${rgb?.g} ${rgb?.b}` } as React.CSSProperties
+-                  : {};
+-
+-                return (
+-                  <button
+-                    key={house.id}
+-                    onClick={() => setHouseToConfirm(house.name)}
+-                    style={glowStyle}
+-                    className={`group relative flex items-center justify-between w-full rounded-[2rem] bg-white border border-slate-200/60 p-6 pr-8 text-left transition-all duration-500 hover:shadow-[0_20px_50px_-12px_rgba(var(--glow-color,100_116_139),0.25)] hover:-translate-y-1.5 active:scale-[0.98] overflow-hidden`}
+-                  >
+-                    {/* Subtle Gradient Background */}
+-                    <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-500 \${theme.surface}`} />
+-                    
+-                    <div className="flex items-center gap-6 relative z-10">
+-                      <div className={`flex h-16 w-16 items-center justify-center rounded-2xl shadow-inner transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3 \${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }}>
+-                        <IconComp className="h-8 w-8 text-white" />
+-                      </div>
+-                      
+-                      <div className="flex flex-col">
+-                        <span className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 transition-colors group-hover:text-blue-600">
+-                          {house.name}
+-                        </span>
+-                        <div className="flex items-center gap-2 mt-1">
+-                          <div className={`h-1.5 w-6 rounded-full \${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }} />
+-                          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Official Ballot</span>
+-                        </div>
+-                      </div>
+-                    </div>
+-
+-                    <div className="relative z-10">
+-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-50 text-slate-400 transition-all duration-500 group-hover:bg-blue-600 group-hover:text-white group-hover:translate-x-2 shadow-sm">
+-                        <ArrowRight className="h-5 w-5" />
+-                      </div>
+-                    </div>
+-                  </button>
+-                );
+-              })}
+-            </div>
+-          </div>
+-
+-          {/* Institutional Footer */}
+-          <div className="mt-16 mb-8 text-center">
+-            <div className="inline-flex items-center gap-3 rounded-full bg-white px-5 py-2.5 border border-slate-100 shadow-sm">
+-              <Shield className="h-4 w-4 text-slate-900" />
+-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+-                Authorized Secure Student Ballot Portal
+-              </p>
+-            </div>
+-          </div>
++              <ArrowRight className="w-5 h-5 text-slate-400" />
++            </button>
++          ))}
+         </div>
+ 
+-        {/* Confirmation Modal */}
+         {houseToConfirm && (
+-          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-6">
+-            <div className="w-full max-w-md animate-scale-in bg-white rounded-[2.5rem] p-10 shadow-2xl border border-white/20">
+-              <div className="flex flex-col items-center text-center">
+-                {(() => {
+-                  const houseObj = houses.find(h => h.name === houseToConfirm);
+-                  const theme = getHouseTheme(houseObj?.color, houseObj?.name);
+-                  const IconComp = theme.icon || Shield;
+-                  const isHex = houseObj?.color.startsWith('#');
+-                  
+-                  return (
+-                    <div 
+-                      className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${!isHex ? theme.borderColor : ''}`}
+-                      style={{ backgroundColor: isHex ? houseObj?.color : undefined }}
+-                    >
+-                      <IconComp className="h-10 w-10 text-white" />
+-                    </div>
+-                  );
+-                })()}
+-                
+-                <h3 className="text-3xl font-black text-slate-900 tracking-tight">Confirm House</h3>
+-                
+-                <div className="mt-6 p-6 rounded-3xl bg-slate-50 border border-slate-100 w-full text-center">
+-                  <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">You have selected</p>
+-                  <p className="text-2xl font-black text-slate-900 mt-2">{houseToConfirm}</p>
+-                </div>
+-
+-                <p className="mt-8 text-base text-slate-500 font-medium leading-relaxed px-2">
+-                  This choice is final and <span className="text-rose-600 font-bold">cannot be changed</span> later. Are you sure?
+-                </p>
+-
+-                <div className="mt-10 grid grid-cols-2 gap-4 w-full">
+-                  <button
+-                    onClick={() => setHouseToConfirm(null)}
+-                    className="flex h-14 items-center justify-center rounded-2xl border-2 border-slate-100 font-black text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all text-sm uppercase tracking-widest"
+-                  >
+-                    Cancel
+-                  </button>
+-                  <button
+-                    onClick={() => {
+-                      if (houseToConfirm) {
+-                        handleHouseSelect(houseToConfirm);
+-                      }
+-                    }}
+-                    disabled={votingLoading}
+-                    className="flex h-14 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-xl hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 text-sm uppercase tracking-widest"
+-                  >
+-                    {votingLoading ? (
+-                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+-                    ) : (
+-                      "Confirm"
+-                    )}
+-                  </button>
+-                </div>
++          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
++            <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl">
++              <h3 className="text-xl font-bold mb-4">Confirm House</h3>
++              <p className="text-slate-600 mb-6">You have selected <strong>{houseToConfirm}</strong>. This choice is final.</p>
++              <div className="flex gap-3">
++                <button onClick={() => setHouseToConfirm(null)} className="flex-1 py-3 border rounded-xl font-bold">Cancel</button>
++                <button onClick={() => handleHouseSelect(houseToConfirm)} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold">Confirm</button>
+               </div>
+             </div>
+           </div>
+         )}
+-
+-        {errorModal && (
+-          <ErrorModal
+-            title={errorModal.title}
+-            message={errorModal.message}
+-            onDismiss={() => setErrorModal(null)}
+-          />
+-        )}
+       </div>
+     );
+   }
+ 
+   return (
+-    <div className="min-h-screen bg-[#eef2f7] text-slate-950">
+-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
++    <div className="min-h-screen bg-[#eef2f7] text-slate-950 dark:bg-slate-950 dark:text-slate-50 transition-colors duration-300">
++      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 dark:bg-slate-900/95 shadow-sm backdrop-blur">
+         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
+           <div className="flex min-w-0 items-center gap-3">
+             <Image
+               src="/logo.png"
+-              alt="CMR National PU College"
++              alt="CMR Logo"
+               width={40}
+               height={40}
+               className="h-10 w-10 shrink-0 rounded-xl object-contain"
+             />
+             <div className="min-w-0">
+-              <p className="truncate text-sm font-bold text-slate-900 sm:text-base">CMR Elections</p>
++              <p className="truncate text-sm font-bold text-slate-900 dark:text-white sm:text-base">CMR Elections</p>
+               <p className="truncate text-[10px] font-medium text-slate-500 sm:text-xs">
+                 Official Student Ballot 2026
+               </p>
+@@ -892,785 +592,173 @@ export default function HomePage() {
+           </div>
+ 
+           <div className="flex shrink-0 items-center gap-2">
+-            {timeLeft !== null && (
+-              <div className={`mr-2 hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold sm:flex ${
+-                timeLeft < 10 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-700'
+-              }`}>
+-                <Clock className="h-3.5 w-3.5" />
+-                <span>
+-                  {timeLeft > 0 ? (
+-                    `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}`
+-                  ) : (
+-                    "Time's Up!"
+-                  )}
+-                </span>
+-              </div>
+-            )}
++            {/* Theme Toggle - Phase 5 */}
++            <button
++              onClick={() => setTheme(isDark ? 'light' : 'dark')}
++              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
++            >
++              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
++            </button>
++
+             {isAdmin && (
+               <button
+                 type="button"
+                 onClick={() => router.push('/admin')}
+                 className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+               >
+-                <BarChart2 className="h-4 w-4" aria-hidden />
++                <BarChart2 className="h-4 w-4" />
+                 <span className="hidden sm:inline">Admin</span>
+               </button>
+             )}
+-            {isGuest ? (
+-              <button
+-                type="button"
+-                onClick={() => router.push('/login')}
+-                className="flex min-h-10 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white hover:bg-blue-800"
+-              >
+-                <LogOut className="h-4 w-4 rotate-180" aria-hidden />
+-                <span>Log in</span>
+-              </button>
+-            ) : (
+-              <button
+-                type="button"
+-                onClick={signOut}
+-                className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+-              >
+-                <LogOut className="h-4 w-4" aria-hidden />
+-                <span className="hidden sm:inline">Sign out</span>
+-              </button>
+-            )}
++            <button
++              type="button"
++              onClick={signOut}
++              className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 hover:bg-rose-100"
++            >
++              <LogOut className="h-4 w-4" />
++              <span className="hidden sm:inline">Sign out</span>
++            </button>
+           </div>
+         </div>
+       </header>
+ 
+       <main className="mx-auto max-w-7xl px-4 pb-28 pt-4 sm:px-6 sm:pb-16 sm:pt-6">
+-        <section className="glass-panel relative overflow-hidden rounded-[2rem] border border-white/70 px-5 py-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.4)] sm:px-8 sm:py-8">
+-          <div className="absolute inset-x-8 top-0 h-32 rounded-full bg-gradient-to-r from-sky-200/60 via-violet-200/60 to-emerald-200/60 blur-3xl" />
+-          <div className="relative grid gap-6 lg:grid-cols-[1.2fr_0.85fr]">
+-            <div>
+-              <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-700">
+-                <Shield className="h-3.5 w-3.5" aria-hidden />
+-                Secure Student Ballot
++        {/* Announcements */}
++        {announcements.length > 0 && (
++          <div className="mb-6 space-y-3">
++            {announcements.map(ann => (
++              <div key={ann.id} className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg relative overflow-hidden">
++                <div className="relative z-10">
++                  <div className="flex items-center gap-2 mb-1">
++                    <Megaphone className="w-4 h-4" />
++                    <span className="text-[10px] font-bold uppercase tracking-wider">Update</span>
++                  </div>
++                  <h3 className="font-bold">{ann.title}</h3>
++                  <p className="text-sm opacity-90">{ann.message}</p>
++                </div>
+               </div>
+-              <h1 className="mt-5 text-3xl font-black tracking-tight text-slate-950 sm:text-5xl">
+-                CMR National PU College
++            ))}
++          </div>
++        )}
++
++        <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-950 shadow-xl">
++          <div className="grid gap-0 lg:grid-cols-[1.3fr_0.9fr]">
++            <div className="px-5 py-6 sm:px-8 sm:py-8 text-white">
++              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]">
++                <Shield className="h-3.5 w-3.5" />
++                Official Election Ballot
++              </div>
++              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">
++                Cast your secure vote for each position.
+               </h1>
+-              <p className="mt-2 text-base font-semibold text-slate-700 sm:text-lg">
+-                Student Council Elections 2026
+-              </p>
+-              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
+-                A guided voting experience for first-time student voters. Browse one position at a
+-                time, select your candidate, and confirm each vote with confidence.
++              <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
++                Your house: <strong>{selectedHouse}</strong>. You can only vote for candidates in your house or open positions.
+               </p>
+-              <div className="mt-6 flex flex-wrap gap-3">
+-                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50">
+-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+-                    Progress
+-                  </p>
+-                  <p className="mt-1 text-lg font-black text-slate-950">
+-                    {completedPositions} / {totalPositions || 0}
+-                  </p>
+-                </div>
+-                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50">
+-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+-                    Voter
+-                  </p>
+-                  <p className="mt-1 text-lg font-bold text-slate-950">
+-                    {isGuest ? 'Guest Preview' : getDisplayName(user)}
+-                  </p>
+-                </div>
+-                {selectedHouse && (
+-                  <div className={`rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50`}>
+-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+-                      Your House
+-                    </p>
+-                    <div className="mt-1 flex items-center gap-2">
+-                      {(() => {
+-                        const houseObj = houses.find(h => h.name === selectedHouse);
+-                        const theme = getHouseTheme(houseObj?.color, houseObj?.name);
+-                        const isHex = houseObj?.color.startsWith('#');
+-                        return (
+-                          <div 
+-                            className={`h-2.5 w-2.5 rounded-full ${!isHex ? `bg-gradient-to-r ${theme.accent}` : ''}`} 
+-                            style={{ backgroundColor: isHex ? houseObj?.color : undefined }}
+-                          />
+-                        );
+-                      })()}
+-                      <p className="text-lg font-black text-slate-950">
+-                        {selectedHouse}
+-                      </p>
+-                    </div>
+-                  </div>
+-                )}
+-              </div>
+             </div>
+ 
+-            <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-slate-950 px-5 py-6 text-white shadow-xl shadow-slate-900/10">
+-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(56,189,248,0.24),_transparent_42%),radial-gradient(circle_at_bottom_left,_rgba(168,85,247,0.22),_transparent_38%)]" />
+-              <div className="relative">
+-                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">
+-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+-                  Please read before you vote
++            <div className="border-t border-white/10 bg-white/5 px-5 py-6 sm:px-8 lg:border-l lg:border-t-0 text-white">
++              <div className="space-y-4">
++                <div>
++                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Voter</p>
++                  <p className="mt-1 text-lg font-bold">{isGuest ? 'Guest Preview' : getDisplayName(user)}</p>
+                 </div>
+-                <p className="mt-4 text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">
+-                  What Happens Next
+-                </p>
+-                <ul className="mt-4 space-y-3 text-sm text-slate-200">
+-                  <li className="flex items-start gap-3">
+-                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
+-                      1
+-                    </span>
+-                    Start the guided ballot.
+-                  </li>
+-                  <li className="flex items-start gap-3">
+-                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
+-                      2
+-                    </span>
+-                    Open one position at a time and choose a candidate.
+-                  </li>
+-                  <li className="flex items-start gap-3">
+-                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
+-                      3
+-                    </span>
+-                    Confirm each selection and continue automatically.
+-                  </li>
+-                </ul>
+-                <div className="mt-5 h-2 rounded-full bg-white/10">
+-                  <div
+-                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-sky-400 to-violet-400 transition-all duration-500"
+-                    style={{ width: `${progressPercentage}%` }}
+-                  />
++                <div className="grid grid-cols-2 gap-3">
++                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
++                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Positions</p>
++                    <p className="mt-2 text-base font-bold">{candidateGroups.length}</p>
++                  </div>
++                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
++                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Voted</p>
++                    <p className="mt-2 text-base font-bold">{votes.length} submitted</p>
++                  </div>
+                 </div>
+-                <p className="mt-3 text-sm text-slate-300">
+-                  {allPositionsCompleted
+-                    ? 'All positions are complete. Review your submitted ballot summary below.'
+-                    : `${Math.max(totalPositions - completedPositions, 0)} position${Math.max(totalPositions - completedPositions, 0) === 1 ? '' : 's'} remaining.`}
+-                </p>
+               </div>
+             </div>
+           </div>
+         </section>
+ 
+         {dataLoading ? (
+-          <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
++          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+             {Array.from({ length: 4 }).map((_, index) => (
+-              <div key={index} className="h-48 rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+-                <div className="p-6">
+-                  <div className="h-10 w-10 rounded-2xl bg-slate-100" />
+-                  <div className="mt-4 h-5 w-32 rounded bg-slate-100" />
+-                  <div className="mt-3 h-4 w-full rounded bg-slate-100" />
+-                  <div className="mt-2 h-4 w-2/3 rounded bg-slate-100" />
+-                </div>
+-              </div>
++              <div key={index} className="h-48 rounded-[1.5rem] border border-slate-200 bg-white dark:bg-slate-900 animate-pulse" />
+             ))}
+           </div>
+-        ) : candidates.length === 0 ? (
+-          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white p-8 text-center shadow-sm">
+-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
+-              <VoteIcon className="h-6 w-6 text-slate-500" aria-hidden />
+-            </div>
+-            <h2 className="text-lg font-bold text-slate-950">Ballot is not ready yet</h2>
+-            <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-600">
+-              No candidates are available at the moment. Please check back later or contact the
+-              election committee.
+-            </p>
+-          </div>
+         ) : (
+-          <>
+-            {!hasStartedVoting && !isReviewScreenOpen ? (
+-              <section className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+-                <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                    Election Home
+-                  </p>
+-                  <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+-                    Start your guided ballot
+-                  </h2>
+-                  <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
+-                    Candidates are grouped by position so you only see one decision at a time.
+-                    This keeps the ballot focused, mobile-friendly, and easy to complete.
+-                  </p>
+-                  <div className="mt-6 rounded-[1.5rem] border border-slate-200/80 bg-slate-50/80 p-5">
+-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                      Progress
+-                    </p>
+-                    <p className="mt-2 text-2xl font-black text-slate-950">
+-                      {completedPositions} / {totalPositions || 0} Positions Completed
+-                    </p>
+-                    <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
+-                      <div
+-                        className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+-                        style={{ width: `${progressPercentage}%` }}
+-                      />
+-                    </div>
+-                  </div>
+-                  <div className="mt-10">
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        setHasStartedVoting(true);
+-                        setIsReviewScreenOpen(false);
+-                        if (!openPosition) {
+-                          setOpenPosition(firstPendingPosition ?? candidateGroups[0]?.position ?? null);
+-                        }
+-                      }}
+-                      className="flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] bg-[#002B5B] px-8 text-lg font-black uppercase tracking-wide text-white shadow-[0_12px_24px_-8px_rgba(0,43,91,0.4)] transition-all hover:-translate-y-0.5 hover:bg-[#003a7a] active:scale-[0.98]"
+-                    >
+-                      <span>{completedPositions > 0 ? 'Continue Guided Ballot' : 'Start Guided Ballot'}</span>
+-                      <ArrowRight className="h-5 w-5" aria-hidden />
+-                    </button>
+-                    <p className="mt-4 text-center text-xs font-semibold uppercase tracking-widest text-slate-400">
+-                      Guided step-by-step experience
+-                    </p>
+-                  </div>
+-                </div>
+-
+-                <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                    Position Overview
+-                  </p>
+-                  <div className="mt-5 space-y-3">
+-                    {candidateGroups.map((group) => {
+-                      const visual = getPositionVisual(group.position);
+-                      const Icon = visual.icon;
+-                      const isCompleted = votesByPosition.has(group.position);
+-
+-                      return (
+-                        <div
+-                          key={group.position}
+-                          className={`rounded-[1.35rem] border bg-gradient-to-br ${visual.surface} ${visual.border} px-4 py-4 shadow-sm`}
+-                        >
+-                          <div className="flex items-center gap-3">
+-                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/80 bg-white/80 shadow-sm">
+-                              <Icon className={`h-5 w-5 ${visual.tint}`} aria-hidden />
+-                            </div>
+-                            <div className="min-w-0 flex-1">
+-                              <p className="truncate text-base font-semibold text-white">
+-                                {group.position}
+-                              </p>
+-                              <p className="text-xs text-blue-100">
+-                                {group.candidates.length} Candidate
+-                                {group.candidates.length === 1 ? '' : 's'}
+-                              </p>
+-                            </div>
+-                            <div
+-                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+-                                isCompleted
+-                                  ? 'bg-emerald-100 text-emerald-700'
+-                                  : 'bg-white text-[#001F3F]'
+-                              }`}
+-                            >
+-                              {isCompleted ? 'Completed' : 'Not Voted'}
+-                            </div>
+-                          </div>
+-                        </div>
+-                      );
+-                    })}
+-                  </div>
+-                </div>
+-              </section>
+-            ) : isReviewScreenOpen ? (
+-              <section className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+-                <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
++          <section className="mt-6 space-y-5">
++            {candidateGroups.map((group) => {
++              const selectedCandidateId = selectedCandidateIds[group.position];
++              const selectedCandidate = group.candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
++              const votedForPosition = votesByPosition.get(group.position);
++              const isOpen = openPosition === group.position;
++
++              return (
++                <section key={group.position} className="rounded-[1.5rem] border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800 p-5 shadow-sm">
++                  <div onClick={() => setOpenPosition(isOpen ? null : group.position)} className="cursor-pointer flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                     <div>
+-                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                        Review
+-                      </p>
+-                      <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+-                        Review your selections
+-                      </h2>
+-                      <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-base">
+-                        This summary reflects the votes already recorded for each position.
+-                      </p>
++                      <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Position</p>
++                      <h3 className="text-xl font-bold text-slate-900 dark:text-white">
++                        {isOpen ? "▼" : "▶"} {group.position} ({group.candidates.length} Candidates)
++                      </h3>
++                    </div>
++                    <div className={`rounded-full px-4 py-2 text-sm font-semibold ${votedForPosition ? 'bg-emerald-500/10 text-emerald-600' : 'bg-slate-50 dark:bg-slate-800'}`}>
++                      {votedForPosition ? 'Vote submitted' : 'Select one candidate'}
+                     </div>
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        setIsReviewScreenOpen(false);
+-                        setHasStartedVoting(true);
+-                      }}
+-                      className="flex min-h-[44px] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]"
+-                    >
+-                      <ArrowRight className="h-4 w-4 rotate-180" aria-hidden />
+-                      <span>Back to Ballot</span>
+-                    </button>
+                   </div>
+ 
+-                  <div className="mt-6 space-y-4">
+-                    {recordedSelections.map(({ position, candidate }) => (
+-                      <div
+-                        key={position}
+-                        className="rounded-[1.5rem] border border-emerald-200/80 bg-white/80 p-4 shadow-sm shadow-emerald-100/50 sm:p-5"
+-                      >
+-                        <div className="flex items-start gap-4">
+-                          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-200">
+-                            {candidate.photo_url ? (
+-                              <Image
+-                                src={candidate.photo_url}
+-                                alt={candidate.name}
+-                                fill
+-                                className="object-contain bg-slate-100"
+-                              />
+-                            ) : (
+-                              <div className="flex h-full w-full items-center justify-center bg-slate-100">
+-                                <VoteIcon className="h-6 w-6 text-slate-400" aria-hidden />
+-                              </div>
+-                            )}
+-                          </div>
+-                          <div className="min-w-0 flex-1">
+-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+-                              {position}
+-                            </p>
+-                            <p className="mt-1 truncate text-lg font-bold text-slate-950">
+-                              {candidate.name}
+-                            </p>
+-                            <p className="mt-1 text-sm text-slate-600">
+-                              {candidate.department} · {candidate.year}
+-                            </p>
+-                          </div>
+-                          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+-                            <CheckCircle2 className="h-4 w-4" aria-hidden />
+-                            Submitted
+-                          </div>
+-                        </div>
++                  {isOpen && (
++                    <div className="mt-6">
++                      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
++                        {group.candidates.map((candidate, index) => (
++                          <CandidateCard
++                            key={candidate.id}
++                            candidate={candidate}
++                            hasVoted={votedForPosition !== undefined}
++                            isVotedFor={votedCandidateIds.has(candidate.id) || selectedCandidateId === candidate.id}
++                            onSelect={(next) => {
++                              if (votedForPosition) return;
++                              setSelectedCandidateIds(curr => ({ ...curr, [next.position]: next.id }));
++                            }}
++                            rank={index}
++                          />
++                        ))}
+                       </div>
+-                    ))}
+-                  </div>
+-                </div>
+ 
+-                <aside className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
+-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                    Ballot Status
+-                  </p>
+-                  <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+-                    {allPositionsCompleted ? 'Ballot completed' : 'Voting in progress'}
+-                  </h3>
+-                  <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-200/80">
+-                    <div
+-                      className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500"
+-                      style={{ width: `${progressPercentage}%` }}
+-                    />
+-                  </div>
+-                  <p className="mt-4 text-sm font-semibold text-slate-700">
+-                    {completedPositions} / {totalPositions || 0} positions completed
+-                  </p>
+-                  
+-                  {allPositionsCompleted && (
+-                    <div className="mt-8 space-y-4">
+-                      <button
+-                        type="button"
+-                        onClick={handleFinalBallotSubmit}
+-                        disabled={votingLoading}
+-                        className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98] disabled:opacity-50"
+-                      >
+-                        {votingLoading ? (
+-                           <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+-                        ) : (
+-                          <>
+-                            <CheckCircle2 className="h-6 w-6" aria-hidden />
+-                            <span>Submit Final Ballot</span>
+-                          </>
+-                        )}
+-                      </button>
+-                      <p className="text-center text-xs font-medium text-slate-500">
+-                        Your official ballot is ready for final submission
+-                      </p>
+-                    </div>
+-                  )}
+-
+-                  <div className="mt-6 rounded-[1.5rem] border border-emerald-200 bg-emerald-50/50 p-5 text-sm leading-relaxed text-emerald-800">
+-                    <div className="flex items-start gap-3">
+-                      <Shield className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+-                      <p>
+-                        Vote submission logic remains unchanged. Each confirmed position is recorded
+-                        immediately and shown here as part of the final ballot summary.
+-                      </p>
+-                    </div>
+-                  </div>
+-                </aside>
+-              </section>
+-            ) : (
+-              <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+-                <div className="space-y-4">
+-                  <div className="glass-panel rounded-[1.75rem] border border-white/70 p-5 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-6">
+-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+-                      <div>
+-                        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                          Guided Ballot
+-                        </p>
+-                        <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+-                          Vote one position at a time
+-                        </h2>
+-                        <p className="mt-2 text-sm leading-relaxed text-slate-600">
+-                          Only one accordion opens at a time, so the ballot stays focused and easy
+-                          to use on mobile.
+-                        </p>
+-                      </div>
+-                      <button
+-                        type="button"
+-                        onClick={() => setIsReviewScreenOpen(true)}
+-                        className="flex min-h-[44px] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]"
+-                      >
+-                        <FileText className="h-4 w-4" aria-hidden />
+-                        <span>Review My Ballot</span>
+-                      </button>
+-                    </div>
+-                  <div className="mt-5 rounded-[1.35rem] border border-slate-200/80 bg-white/85 p-4 shadow-sm">
+-                      <div className="flex items-start justify-between gap-3">
+-                        <div>
+-                          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+-                            Current Progress
++                      {!votedForPosition && (
++                        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 sm:flex-row sm:items-center sm:justify-between">
++                          <p className="text-sm font-medium">
++                            {selectedCandidate ? `Selected: ${selectedCandidate.name}` : `Choose a candidate for ${group.position}`}
+                           </p>
+-                          <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+-                            {completedPositions} / {totalPositions || 0} Positions Completed
+-                          </p>
+-                        </div>
+-                        <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+-                          {progressPercentage}%
+-                        </div>
+-                      </div>
+-                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
+-                        <div
+-                          className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+-                          style={{ width: `${progressPercentage}%` }}
+-                        />
+-                      </div>
+-                    </div>
+-                  </div>
+-
+-                  {candidateGroups.map((group) => {
+-                    const visual = getPositionVisual(group.position);
+-                    const Icon = visual.icon;
+-                    const selectedCandidateId = selectedCandidateIds[group.position];
+-                    const selectedCandidate =
+-                      group.candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
+-                    const votedForPosition = votesByPosition.get(group.position);
+-                    const submittedCandidate =
+-                      votedForPosition
+-                        ? candidates.find((candidate) => candidate.id === votedForPosition.candidate_id) ?? null
+-                        : null;
+-                    const isOpen = openPosition === group.position && !isReviewScreenOpen;
+-                    const isMissing = !votedForPosition && !isReviewScreenOpen && showValidationErrors;
+-
+-                    return (
+-                      <section
+-                        key={group.position}
+-                        id={`position-${group.position.replace(/\s+/g, '-').toLowerCase()}`}
+-                        className={`glass-panel overflow-hidden rounded-[1.75rem] border transition-all duration-500 ${
+-                          isMissing && !selectedCandidate ? 'border-red-400 ring-4 ring-red-50 shadow-xl shadow-red-100/50' : 'border-white/70 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]'
+-                        }`}
+-                      >
+-                        <button
+-                          type="button"
+-                          onClick={() => setOpenPosition(group.position)}
+-                          className={`flex w-full items-start gap-4 px-4 py-4 text-left transition sm:px-6 sm:py-5 ${
+-                            isOpen ? 'bg-white/80' : 'bg-white/65 hover:bg-white/85'
+-                          }`}
+-                          aria-expanded={isOpen}
+-                        >
+-                          <div
+-                            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border bg-gradient-to-br shadow-sm ${visual.border} ${visual.surface}`}
++                          <button
++                            onClick={() => selectedCandidate && setConfirmCandidate(selectedCandidate)}
++                            disabled={!selectedCandidate || votingLoading}
++                            className={`flex min-h-11 items-center justify-center rounded-xl px-5 text-sm font-bold ${selectedCandidate ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
+                           >
+-                            <Icon className={`h-6 w-6 ${visual.tint}`} aria-hidden />
+-                          </div>
+-                          <div className="min-w-0 flex-1">
+-                            <div className="flex flex-wrap items-center gap-2.5">
+-                              <h3 className={`text-xl font-black tracking-tight sm:text-2xl ${isOpen ? 'text-[#001F3F]' : 'text-slate-950'}`}>
+-                                {group.position}
+-                              </h3>
+-                              {votedForPosition && (
+-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+-                                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+-                                  Completed
+-                                </span>
+-                              )}
+-                            </div>
+-                            <p className="mt-1 text-sm font-medium text-slate-600">
+-                              {group.candidates.length} candidate
+-                              {group.candidates.length === 1 ? '' : 's'}
+-                              {submittedCandidate ? ` · ${submittedCandidate.name} selected` : ''}
+-                              {!submittedCandidate && selectedCandidate
+-                                ? ` · ${selectedCandidate.name} selected`
+-                                : ''}
+-                            </p>
+-                          </div>
+-                          <div className="flex flex-col items-end gap-2">
+-                            <div
+-                              className={`rounded-full px-3 py-1 text-xs font-semibold ${
+-                                votedForPosition
+-                                  ? 'bg-emerald-100 text-emerald-700'
+-                                  : selectedCandidate
+-                                    ? 'bg-sky-100 text-sky-700'
+-                                    : isMissing ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-white/80 text-slate-600'
+-                              }`}
+-                            >
+-                              {votedForPosition
+-                                ? 'Voted'
+-                                : selectedCandidate
+-                                  ? 'Ready to confirm'
+-                                  : isMissing ? 'Missing Vote' : 'Not Voted'}
+-                            </div>
+-                            <ChevronDown
+-                              className={`h-5 w-5 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+-                              aria-hidden
+-                            />
+-                          </div>
+-                        </button>
+-
+-                        <div
+-                          className={`accordion-panel overflow-hidden border-t border-slate-200/70 bg-white/75 transition-all duration-300 ease-out ${
+-                            isOpen ? 'max-h-[2200px] opacity-100' : 'max-h-0 opacity-0'
+-                          }`}
+-                        >
+-                          <div className="px-4 py-4 sm:px-6 sm:py-6">
+-                            {votedForPosition && submittedCandidate ? (
+-                              <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-900">
+-                                <div className="flex items-start gap-3">
+-                                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100">
+-                                    <Check className="h-5 w-5 text-emerald-700" aria-hidden />
+-                                  </div>
+-                                  <div>
+-                                    <p className="text-base font-bold">{group.position} completed</p>
+-                                    <p className="mt-1 text-sm text-emerald-800">
+-                                      Your recorded vote is <strong>{submittedCandidate.name}</strong>.
+-                                    </p>
+-                                  </div>
+-                                </div>
+-                              </div>
+-                            ) : (
+-                              <>
+-                                <div className="grid grid-cols-2 gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+-                                  {group.candidates.map((candidate, index) => (
+-                                    <CandidateCard
+-                                      key={candidate.id}
+-                                      candidate={candidate}
+-                                      hasVoted={votesByPosition.has(candidate.position)}
+-                                      isVotedFor={
+-                                        votedCandidateIds.has(candidate.id) ||
+-                                        selectedCandidateIds[candidate.position] === candidate.id
+-                                      }
+-                                      onSelect={(nextCandidate) => {
+-                                        if (votesByPosition.has(nextCandidate.position)) return;
+-                                        setSelectedCandidateIds((current) => ({
+-                                          ...current,
+-                                          [nextCandidate.position]: nextCandidate.id,
+-                                        }));
+-                                      }}
+-                                      rank={index}
+-                                    />
+-                                  ))}
+-                                </div>
+-
+-                                <div className="sticky bottom-4 mt-6 animate-scale-in rounded-[1.5rem] border border-slate-200/80 bg-white/95 p-4 shadow-xl shadow-slate-200/60 backdrop-blur sm:p-5">
+-                                  <div className="flex flex-col gap-4">
+-                                    <div className="flex flex-col gap-1 px-1">
+-                                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+-                                        Current Selection
+-                                      </p>
+-                                      <p className="text-lg font-black text-slate-950">
+-                                        {selectedCandidate
+-                                          ? selectedCandidate.name
+-                                          : `Choose a candidate for ${group.position}`}
+-                                      </p>
+-                                    </div>
+-                                    <button
+-                                      type="button"
+-                                      onClick={() => selectedCandidate && setConfirmCandidate(selectedCandidate)}
+-                                      disabled={!selectedCandidate || votingLoading}
+-                                      className={`flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-6 text-lg font-black uppercase tracking-wide transition-all duration-300 ${
+-                                        selectedCandidate
+-                                          ? 'bg-[#002B5B] text-white shadow-[0_12px_24px_-8px_rgba(0,43,91,0.4)] hover:-translate-y-0.5 hover:bg-[#003a7a] active:scale-[0.98]'
+-                                          : 'cursor-not-allowed bg-slate-100 text-slate-400'
+-                                      }`}
+-                                    >
+-                                      {selectedCandidate ? (
+-                                        <>
+-                                          <VoteIcon className="h-5 w-5" aria-hidden />
+-                                          <span>Submit Vote</span>
+-                                        </>
+-                                      ) : (
+-                                        <>
+-                                          <Lock className="h-5 w-5" aria-hidden />
+-                                          <span>Select a Candidate</span>
+-                                        </>
+-                                      )}
+-                                    </button>
+-                                  </div>
+-                                </div>
+-                              </>
+-                            )}
+-                          </div>
++                            Submit {group.position} vote
++                          </button>
+                         </div>
+-                      </section>
+-                    );
+-                  })}
+-                </div>
+-
+-                <aside className="hidden xl:block">
+-                  <div className="sticky top-24 space-y-4">
+-                    <div className="glass-panel rounded-[1.75rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]">
+-                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                        Voting Progress
+-                      </p>
+-                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
+-                        <div
+-                          className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+-                          style={{ width: `${progressPercentage}%` }}
+-                        />
+-                      </div>
+-                      <p className="mt-3 text-2xl font-black text-slate-950">
+-                        {completedPositions} / {totalPositions || 0}
+-                      </p>
+-                      <p className="mt-1 text-sm text-slate-600">Positions completed</p>
+-                      
+-                      {!allPositionsCompleted && (
+-                        <button
+-                          type="button"
+-                          onClick={() => {
+-                            setShowValidationErrors(true);
+-                            if (completedPositions < totalPositions) {
+-                              setErrorModal({
+-                                title: 'Incomplete Ballot',
+-                                message: 'Please vote for all required positions before submitting.',
+-                              });
+-                              // Find first missing position and scroll to it
+-                              const missing = candidateGroups.find(g => !votesByPosition.has(g.position));
+-                              if (missing) {
+-                                setOpenPosition(missing.position);
+-                                const el = document.getElementById(`position-${missing.position.replace(/\s+/g, '-').toLowerCase()}`);
+-                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+-                              }
+-                              return;
+-                            }
+-                            setIsReviewScreenOpen(true);
+-                          }}
+-                          className="mt-6 flex min-h-[56px] w-full items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-6 text-base font-bold text-white shadow-lg transition-all hover:bg-[#003a7a] active:scale-[0.98]"
+-                        >
+-                          <FileText className="h-5 w-5" />
+-                          Submit Your Vote
+-                        </button>
+                       )}
+                     </div>
++                  )}
++                </section>
++              );
++            })}
+ 
+-                    <div className="glass-panel rounded-[1.75rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]">
+-                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+-                        Next Up
+-                      </p>
+-                      <p className="mt-2 text-lg font-bold text-slate-950">
+-                        {firstPendingPosition ?? 'All positions completed'}
+-                      </p>
+-                    </div>
+-                  </div>
+-                </aside>
+-              </section>
+-            )}
+-          </>
+-        )}
+-
+-        {hasStartedVoting && totalPositions > 0 && (
+-          <div className="fixed inset-x-0 bottom-0 z-40 bg-white/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-20px_40px_-15px_rgba(15,23,42,0.1)] backdrop-blur-md xl:hidden">
+-            <div className="mx-auto max-w-lg">
+-              {timeLeft !== null && (
+-                <div className={`mb-3 flex items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-black uppercase tracking-widest ${
+-                  timeLeft < 10 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-700'
+-                }`}>
+-                  <Clock className="h-3.5 w-3.5" />
+-                  <span>Time Remaining: {timeLeft > 0 ? `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}` : "Time's Up!"}</span>
+-                </div>
+-              )}
+-              {!isReviewScreenOpen && (
+-                <div className="mb-4">
+-                  <div className="flex items-center justify-between mb-2">
+-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+-                      Voting Progress
+-                    </p>
+-                    <p className="text-xs font-bold text-slate-900">
+-                      {completedPositions} / {totalPositions || 0} completed
+-                    </p>
+-                  </div>
+-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+-                    <div
+-                      className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
+-                      style={{ width: `${progressPercentage}%` }}
+-                    />
+-                  </div>
+-                </div>
+-              )}
+-
+-              {allPositionsCompleted ? (
+-                <button
+-                  type="button"
++            {votes.length === candidateGroups.length && votes.length > 0 && (
++               <button
+                   onClick={handleFinalBallotSubmit}
+                   disabled={votingLoading}
+-                  className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98] disabled:opacity-50"
++                  className="w-full py-5 bg-emerald-600 text-white rounded-[1.5rem] font-bold text-xl shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                 >
+-                   {votingLoading ? (
+-                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+-                   ) : (
+-                     <>
+-                       <CheckCircle2 className="h-6 w-6" aria-hidden />
+-                       <span>Submit Final Ballot</span>
+-                     </>
+-                   )}
+-                </button>
+-              ) : (
+-                <div className="flex gap-3">
+-                  {!isReviewScreenOpen && (
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        setShowValidationErrors(true);
+-                        if (completedPositions < totalPositions) {
+-                          setErrorModal({
+-                            title: 'Incomplete Ballot',
+-                            message: 'Please vote for all required positions before submitting.',
+-                          });
+-                          const missing = candidateGroups.find(g => !votesByPosition.has(g.position));
+-                          if (missing) {
+-                            setOpenPosition(missing.position);
+-                            const el = document.getElementById(`position-${missing.position.replace(/\s+/g, '-').toLowerCase()}`);
+-                            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+-                          }
+-                          return;
+-                        }
+-                        setIsReviewScreenOpen(true);
+-                      }}
+-                      className="flex min-h-[56px] flex-1 items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-6 text-base font-bold text-white shadow-lg active:scale-[0.98]"
+-                    >
+-                      <FileText className="h-5 w-5" />
+-                      <span>Submit Your Vote</span>
+-                    </button>
+-                  )}
+-                  {isReviewScreenOpen && (
+-                    <button
+-                      type="button"
+-                      onClick={() => setIsReviewScreenOpen(false)}
+-                      className="flex min-h-[56px] flex-1 items-center justify-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-6 text-base font-bold text-slate-700 shadow-sm active:scale-[0.98]"
+-                    >
+-                      <ArrowRight className="h-5 w-5 rotate-180" />
+-                      <span>Back to Ballot</span>
+-                    </button>
+-                  )}
+-                </div>
+-              )}
+-            </div>
+-          </div>
++                  {votingLoading ? <div className="h-6 w-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><CheckCircle2 className="w-6 h-6" /> Finish & Submit Ballot</>}
++               </button>
++            )}
++          </section>
+         )}
+ 
+-        <footer className="mt-20 border-t border-slate-200 pt-10 pb-16 text-center">
+-          <div className="mx-auto max-w-xs">
+-            <div className="mb-4 flex justify-center gap-4 opacity-30">
+-              <div className="h-px w-10 bg-slate-900" />
+-              <Shield className="h-4 w-4 text-slate-900" />
+-              <div className="h-px w-10 bg-slate-900" />
+-            </div>
+-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+-              Official Election Platform
+-            </p>
+-            <p className="mt-3 text-sm font-medium text-slate-600">
+-              Designed & Developed by <span className="text-slate-900 font-bold">Yeshwanth B</span>
+-            </p>
+-            <p className="mt-1 text-[10px] text-slate-400">
+-              © 2026 CMR National PU College. All rights reserved.
+-            </p>
+-          </div>
++        <footer className="mt-8 rounded-[1.25rem] border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800 px-4 py-3 text-center shadow-sm">
++          <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
++            Election Management System | Designed & Developed by Yeshwanth B
++          </p>
+         </footer>
+       </main>
+ 
+diff --git a/components/admin-layout.tsx b/components/admin-layout.tsx
+index 07e3303..d279ea7 100644
+--- a/components/admin-layout.tsx
++++ b/components/admin-layout.tsx
+@@ -3,12 +3,12 @@
+ import { useRouter } from 'next/navigation';
+ import Image from "next/image";
+ import { useAuth } from '@/components/auth-provider';
+-import { LogOut, Vote, Settings, BarChart3, Users, Palette } from 'lucide-react';
++import { LogOut, Vote, Settings, BarChart3, Users, Palette, Building2, Megaphone, TrendingUp } from 'lucide-react';
+ import Link from 'next/link';
+ 
+ type AdminLayoutProps = {
+   children: React.ReactNode;
+-  activePage?: 'dashboard' | 'candidates' | 'results' | 'positions' | 'houses';
++  activePage?: 'dashboard' | 'candidates' | 'results' | 'positions' | 'houses' | 'branding' | 'announcements' | 'analytics';
+ };
+ 
+ export function AdminLayout({ children, activePage }: AdminLayoutProps) {
+@@ -59,23 +59,44 @@ export function AdminLayout({ children, activePage }: AdminLayoutProps) {
+         </div>
+ 
+         {/* Navigation */}
+-        <nav className="flex-1 p-4 space-y-2">
++        <nav className="flex-1 p-4 space-y-1">
+           <NavItem
+             href="/admin"
+             icon={<BarChart3 className="w-5 h-5" />}
+             label="Dashboard"
+             active={activePage === 'dashboard'}
+           />
++          <NavItem
++            href="/admin/branding"
++            icon={<Building2 className="w-5 h-5" />}
++            label="College Branding"
++            active={activePage === 'branding'}
++          />
++          <NavItem
++            href="/admin/announcements"
++            icon={<Megaphone className="w-5 h-5" />}
++            label="Announcements"
++            active={activePage === 'announcements'}
++          />
++          <NavItem
++            href="/admin/analytics"
++            icon={<TrendingUp className="w-5 h-5" />}
++            label="Advanced Analytics"
++            active={activePage === 'analytics'}
++          />
++          <div className="pt-4 pb-2 px-4">
++            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Management</p>
++          </div>
+           <NavItem
+             href="/admin/candidates"
+             icon={<Users className="w-5 h-5" />}
+-            label="Manage Candidates"
++            label="Candidates"
+             active={activePage === 'candidates'}
+           />
+           <NavItem
+             href="/admin/houses"
+             icon={<Palette className="w-5 h-5" />}
+-            label="House Management"
++            label="Houses"
+             active={activePage === 'houses'}
+           />
+           <NavItem
+@@ -87,7 +108,7 @@ export function AdminLayout({ children, activePage }: AdminLayoutProps) {
+           <NavItem
+             href="/admin/results"
+             icon={<Settings className="w-5 h-5" />}
+-            label="Results & Stats"
++            label="Results"
+             active={activePage === 'results'}
+           />
+         </nav>
+@@ -115,15 +136,16 @@ export function AdminLayout({ children, activePage }: AdminLayoutProps) {
+         {/* Header */}
+         <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm">
+           <div className="px-8 h-16 flex items-center justify-between">
+-            <div>
+-              <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
+-              <p className="text-sm text-slate-500">Manage the election process</p>
++            <h1 className="text-lg font-bold text-slate-900 capitalize">{activePage?.replace(/-/g, ' ') || 'Admin'}</h1>
++            <div className="flex items-center gap-4">
++               <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
++               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Live System Active</span>
+             </div>
+           </div>
+         </header>
+ 
+         {/* Content */}
+-        <main className="p-8">
++        <main className="p-8 bg-slate-50 min-h-[calc(100vh-64px)]">
+           {children}
+         </main>
+       </div>
+@@ -145,10 +167,10 @@ function NavItem({
+   return (
+     <Link
+       href={href}
+-      className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
++      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl font-bold text-sm transition-all ${
+         active
+-          ? 'bg-blue-600 text-white'
+-          : 'text-slate-300 hover:text-white hover:bg-slate-800'
++          ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
++          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+       }`}
+     >
+       {icon}
+diff --git a/components/candidate-card.tsx b/components/candidate-card.tsx
+index 6a9d006..06c0cb2 100644
+--- a/components/candidate-card.tsx
++++ b/components/candidate-card.tsx
+@@ -38,30 +38,27 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
+               : 'cursor-pointer border-slate-200 bg-white hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl'
+       }`}
+       onClick={() => !hasVoted && onSelect(candidate)}
+-      onKeyDown={(event) => {
+-        if (hasVoted) return;
+-        if (event.key === 'Enter' || event.key === ' ') {
+-          event.preventDefault();
+-          onSelect(candidate);
+-        }
+-      }}
+       role="button"
+       tabIndex={hasVoted ? -1 : 0}
++      aria-pressed={isVotedFor}
++      style={{
++        animationDelay: `${rank * 50}ms`,
++      }}
+     >
+-      {/* 95% Photo Fill Section */}
+-      <div className="relative aspect-[3/4] w-full overflow-hidden">
+-        {candidate.photo_url && candidate.photo_url.length > 0 ? (
++      <div className="relative aspect-[4/5] w-full overflow-hidden bg-slate-100">
++        {candidate.photo_url ? (
+           <Image
+             src={candidate.photo_url}
+             alt={candidate.name}
+             fill
+-            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+-            className="object-cover object-top"
+-            priority={rank < 6}
++            className={`object-cover transition-transform duration-700 ${
++              isActiveSelection ? 'scale-110' : 'group-hover:scale-105'
++            }`}
++            sizes="(max-w-768px) 50vw, 33vw"
+           />
+         ) : (
+-          <div className="flex h-full w-full items-center justify-center bg-slate-100">
+-            <UserRound className="h-12 w-12 text-slate-300" />
++          <div className="flex h-full w-full items-center justify-center text-slate-300">
++            <UserRound className="h-16 w-16" aria-hidden />
+           </div>
+         )}
+ 
+@@ -91,16 +88,15 @@ function CandidateCardComponent({ candidate, hasVoted, isVotedFor, onSelect, ran
+         </div>
+       </div>
+ 
+-      {/* Details Section */}
+-      <div className="flex flex-1 flex-col p-3">
+-        <div className="mb-2 flex flex-wrap gap-1">
+-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">
+-            <Briefcase className="h-2.5 w-2.5 shrink-0 text-slate-500" aria-hidden />
+-            {candidate.department}
++      <div className="flex flex-1 flex-col p-4 pt-3">
++        <div className="mb-3 flex flex-wrap gap-1.5">
++          <span className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 ring-1 ring-inset ring-blue-700/10">
++            <GraduationCap className="h-3 w-3" aria-hidden />
++            Year {candidate.year}
+           </span>
+-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">
+-            <GraduationCap className="h-2.5 w-2.5 shrink-0 text-slate-500" aria-hidden />
+-            {candidate.year}
++          <span className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600 ring-1 ring-inset ring-slate-600/10">
++            <BookOpen className="h-3 w-3" aria-hidden />
++            {candidate.department}
+           </span>
+         </div>
+ 
+diff --git a/components/timer-settings.tsx b/components/timer-settings.tsx
+deleted file mode 100644
+index 01d4743..0000000
+--- a/components/timer-settings.tsx
++++ /dev/null
+@@ -1,326 +0,0 @@
+-'use client';
+-
+-import { useState, useEffect } from 'react';
+-import { supabase, type TimerSettings } from '@/lib/supabase';
+-import { Clock, Play, Pause, RotateCcw, Save, AlertCircle } from 'lucide-react';
+-
+-type Props = {
+-  onSave?: () => void;
+-};
+-
+-export function TimerSettings({ onSave }: Props) {
+-  const [timerEnabled, setTimerEnabled] = useState(false);
+-  const [timerDuration, setTimerDuration] = useState(60);
+-  const [customDuration, setCustomDuration] = useState('');
+-  const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
+-  const [loading, setLoading] = useState(true);
+-  const [saving, setSaving] = useState(false);
+-  const [error, setError] = useState<string | null>(null);
+-  const TIMER_DEFAULTS = {
+-    timer_enabled: false,
+-    timer_duration: 60,
+-    timer_status: 'stopped' as 'stopped' | 'running' | 'paused',
+-    timer_start_time: null as string | null,
+-  };
+-
+-  useEffect(() => {
+-    fetchTimerSettings();
+-  }, []);
+-
+-  const fetchTimerSettings = async () => {
+-    try {
+-      setLoading(true);
+-      const settingKeys = Object.keys(TIMER_DEFAULTS);
+-      const { data, error: fetchError } = await supabase
+-        .from('election_settings')
+-        .select('key, value')
+-        .in('key', settingKeys);
+-
+-      if (fetchError) {
+-        throw fetchError;
+-      }
+-
+-      const settingsMap = new Map((data ?? []).map((item) => [item.key, item.value]));
+-      const missingSettings = settingKeys
+-        .filter((key) => !settingsMap.has(key))
+-        .map((key) => ({ key, value: TIMER_DEFAULTS[key as keyof typeof TIMER_DEFAULTS] }));
+-
+-      if (missingSettings.length > 0) {
+-        const { error: seedError } = await supabase
+-          .from('election_settings')
+-          .upsert(missingSettings, { onConflict: 'key' });
+-
+-        if (seedError) {
+-          throw seedError;
+-        }
+-
+-        for (const setting of missingSettings) {
+-          settingsMap.set(setting.key, setting.value);
+-        }
+-      }
+-
+-      const enabledValue = settingsMap.get('timer_enabled');
+-      const durationValue = settingsMap.get('timer_duration');
+-      const statusValue = settingsMap.get('timer_status');
+-
+-      setTimerEnabled(enabledValue === true || enabledValue === 'true');
+-      setTimerDuration(Number(durationValue ?? TIMER_DEFAULTS.timer_duration));
+-      setTimerStatus((statusValue ?? TIMER_DEFAULTS.timer_status) as 'stopped' | 'running' | 'paused');
+-    } catch (err) {
+-      console.error('Error fetching timer settings:', err);
+-      setError('Failed to load timer settings');
+-    } finally {
+-      setLoading(false);
+-    }
+-  };
+-
+-  const handleSave = async () => {
+-    try {
+-      setSaving(true);
+-      setError(null);
+-
+-      const duration = timerDuration === 0 && customDuration ? Number(customDuration) : timerDuration;
+-
+-      await supabase.from('election_settings').upsert([
+-        { key: 'timer_enabled', value: String(timerEnabled) },
+-        { key: 'timer_duration', value: String(duration) },
+-        { key: 'timer_status', value: timerStatus },
+-      ]);
+-
+-      onSave?.();
+-    } catch (err) {
+-      console.error('Error saving timer settings:', err);
+-      setError('Failed to save timer settings');
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+-  const handleStartTimer = async () => {
+-    try {
+-      setSaving(true);
+-      await supabase
+-        .from('election_settings')
+-        .update({ value: 'running' })
+-        .eq('key', 'timer_status');
+-      
+-      await supabase
+-        .from('election_settings')
+-        .update({ value: new Date().toISOString() })
+-        .eq('key', 'timer_start_time');
+-      
+-      setTimerStatus('running');
+-    } catch (err) {
+-      console.error('Error starting timer:', err);
+-      setError('Failed to start timer');
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+-  const handlePauseTimer = async () => {
+-    try {
+-      setSaving(true);
+-      await supabase
+-        .from('election_settings')
+-        .update({ value: 'paused' })
+-        .eq('key', 'timer_status');
+-      
+-      setTimerStatus('paused');
+-    } catch (err) {
+-      console.error('Error pausing timer:', err);
+-      setError('Failed to pause timer');
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+-  const handleResetTimer = async () => {
+-    try {
+-      setSaving(true);
+-      await supabase
+-        .from('election_settings')
+-        .update({ value: 'stopped' })
+-        .eq('key', 'timer_status');
+-      
+-      await supabase
+-        .from('election_settings')
+-        .update({ value: null })
+-        .eq('key', 'timer_start_time');
+-      
+-      setTimerStatus('stopped');
+-    } catch (err) {
+-      console.error('Error resetting timer:', err);
+-      setError('Failed to reset timer');
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+-  if (loading) {
+-    return (
+-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+-        <div className="flex items-center gap-3">
+-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
+-          <p className="text-sm text-slate-600">Loading timer settings...</p>
+-        </div>
+-      </div>
+-    );
+-  }
+-
+-  return (
+-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+-      <div className="flex items-start justify-between gap-4 mb-6">
+-        <div className="flex items-center gap-3">
+-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">
+-            <Clock className="h-5 w-5 text-slate-700" />
+-          </div>
+-          <div>
+-            <h3 className="text-lg font-bold text-slate-900">Voting Timer</h3>
+-            <p className="text-sm text-slate-600">Configure and control the voting timer</p>
+-          </div>
+-        </div>
+-      </div>
+-
+-      {error && (
+-        <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3">
+-          <AlertCircle className="h-4 w-4 text-rose-600 mt-0.5" />
+-          <p className="text-sm text-rose-700">{error}</p>
+-        </div>
+-      )}
+-
+-      <div className="space-y-6">
+-        {/* Enable/Disable Timer */}
+-        <div className="flex items-center justify-between">
+-          <div>
+-            <p className="text-sm font-semibold text-slate-900">Enable Timer</p>
+-            <p className="text-xs text-slate-600">Show countdown timer to voters</p>
+-          </div>
+-          <button
+-            type="button"
+-            onClick={() => setTimerEnabled(!timerEnabled)}
+-            className={`relative h-6 w-11 rounded-full transition-colors ${
+-              timerEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+-            }`}
+-          >
+-            <span
+-              className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+-                timerEnabled ? 'translate-x-6' : 'translate-x-1'
+-              }`}
+-            />
+-          </button>
+-        </div>
+-
+-        {/* Timer Duration */}
+-        <div>
+-          <p className="text-sm font-semibold text-slate-900 mb-2">Timer Duration</p>
+-          <div className="flex flex-wrap gap-2">
+-            {[30, 60, 90, 120].map((duration) => (
+-              <button
+-                key={duration}
+-                type="button"
+-                onClick={() => {
+-                  setTimerDuration(duration);
+-                  setCustomDuration('');
+-                }}
+-                className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+-                  timerDuration === duration
+-                    ? 'border-slate-900 bg-slate-900 text-white'
+-                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+-                }`}
+-              >
+-                {duration}s
+-              </button>
+-            ))}
+-            <div className="flex items-center gap-2">
+-              <input
+-                type="number"
+-                value={customDuration}
+-                onChange={(e) => {
+-                  setCustomDuration(e.target.value);
+-                  setTimerDuration(0);
+-                }}
+-                placeholder="Custom"
+-                min="5"
+-                max="600"
+-                className="w-24 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none"
+-              />
+-              <span className="text-xs text-slate-600">seconds</span>
+-            </div>
+-          </div>
+-        </div>
+-
+-        {/* Timer Controls */}
+-        <div className="flex items-center gap-2 pt-4 border-t border-slate-200">
+-          <button
+-            type="button"
+-            onClick={handleStartTimer}
+-            disabled={timerStatus === 'running' || saving}
+-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+-          >
+-            <Play className="h-4 w-4" />
+-            Start
+-          </button>
+-          <button
+-            type="button"
+-            onClick={handlePauseTimer}
+-            disabled={timerStatus !== 'running' || saving}
+-            className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+-          >
+-            <Pause className="h-4 w-4" />
+-            Pause
+-          </button>
+-          <button
+-            type="button"
+-            onClick={handleResetTimer}
+-            disabled={timerStatus === 'stopped' || saving}
+-            className="flex items-center gap-2 rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+-          >
+-            <RotateCcw className="h-4 w-4" />
+-            Reset
+-          </button>
+-          <div className="ml-auto">
+-            <button
+-              type="button"
+-              onClick={handleSave}
+-              disabled={saving}
+-              className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+-            >
+-              <Save className="h-4 w-4" />
+-              {saving ? 'Saving...' : 'Save Settings'}
+-            </button>
+-          </div>
+-        </div>
+-
+-        {/* Current Status */}
+-        <div className="rounded-lg bg-slate-50 p-4">
+-          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+-            Current Status
+-          </p>
+-          <div className="flex items-center gap-4">
+-            <div className="flex items-center gap-2">
+-              <div
+-                className={`h-2 w-2 rounded-full ${
+-                  timerStatus === 'running'
+-                    ? 'bg-emerald-500'
+-                    : timerStatus === 'paused'
+-                      ? 'bg-amber-500'
+-                      : 'bg-slate-400'
+-                }`}
+-              />
+-              <span className="text-sm text-slate-700 capitalize">{timerStatus}</span>
+-            </div>
+-            <span className="text-slate-300">|</span>
+-            <span className="text-sm text-slate-700">
+-              Duration: {timerDuration === 0 && customDuration ? customDuration : timerDuration} seconds
+-            </span>
+-            <span className="text-slate-300">|</span>
+-            <span className="text-sm text-slate-700">
+-              {timerEnabled ? 'Enabled' : 'Disabled'}
+-            </span>
+-          </div>
+-        </div>
+-      </div>
+-    </div>
+-  );
+-}
+diff --git a/lib/candidates.ts b/lib/candidates.ts
+index d1a15af..8023cac 100644
+--- a/lib/candidates.ts
++++ b/lib/candidates.ts
+@@ -8,13 +8,21 @@ export type CandidateMutation = Pick<
+   'name' | 'position' | 'department' | 'year' | 'bio' | 'photo_url' | 'manifesto' | 'house'
+ >;
+ 
+-export async function fetchCandidates() {
+-  const result = await supabase
++export async function fetchCandidates(collegeId?: string) {
++  console.log("DEBUG: Fetching candidates. Optional collegeId:", collegeId);
++  let query = supabase
+     .from('candidates')
+     .select(CANDIDATE_SELECT)
+     .order('position')
+     .order('name');
+ 
++  if (collegeId && collegeId !== '00000000-0000-0000-0000-000000000000') {
++    query = query.eq('college_id', collegeId);
++  }
++
++  const result = await query;
++  console.log("DEBUG: Candidate fetch response:", { count: result.data?.length, error: result.error });
++
+   return {
+     data: (result.data ?? []) as Candidate[],
+     error: result.error,
+diff --git a/lib/houses.ts b/lib/houses.ts
+index 6e40adb..38eef1e 100644
+--- a/lib/houses.ts
++++ b/lib/houses.ts
+@@ -107,13 +107,22 @@ export function hexToRgb(hex: string) {
+   } : null;
+ }
+ 
+-export async function fetchHouses() {
++export async function fetchHouses(collegeId?: string) {
+   try {
+-    const { data, error } = await supabase
++    console.log("DEBUG: Fetching houses. Optional collegeId filter:", collegeId);
++    let query = supabase
+       .from('houses')
+       .select('*')
+       .order('display_order', { ascending: true });
+ 
++    // Only apply college filter if explicitly requested AND not using the default global ID
++    if (collegeId && collegeId !== '00000000-0000-0000-0000-000000000000') {
++      query = query.eq('college_id', collegeId);
++    }
++
++    const { data, error } = await query;
++    console.log("DEBUG: House fetch response:", { data, error });
++
+     if (error) {
+       console.error('Error fetching houses:', error);
+       return { data: [], error };
+diff --git a/lib/supabase.ts b/lib/supabase.ts
+index 45f99c6..359c306 100644
+--- a/lib/supabase.ts
++++ b/lib/supabase.ts
+@@ -66,6 +66,25 @@ export type ElectionSetting = {
+   updated_by: string | null;
+ };
+ 
++export type ElectionAnnouncement = {
++  id: string;
++  title: string;
++  message: string;
++  is_active: boolean;
++  created_at: string;
++  updated_at: string;
++  created_by: string | null;
++};
++
++export type ElectionLog = {
++  id: string;
++  admin_id: string;
++  action: string;
++  details: any;
++  ip_address: string | null;
++  created_at: string;
++};
++
+ export type TimerSettings = {
+   enabled: boolean;
+   duration: number; // in seconds
