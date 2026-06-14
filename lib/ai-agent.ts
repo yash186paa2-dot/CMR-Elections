@@ -10,20 +10,18 @@ import {
   logAdminAction
 } from './admin-actions';
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY || '');
-
 /**
  * Dynamically selects the best available Flash model to avoid 404 errors.
  */
-async function getBestModel() {
+async function getBestModel(apiKey: string) {
   const MODEL_PRIORITY = [
-    "gemini-2.5-flash",
     "gemini-2.0-flash",
+    "gemini-1.5-flash",
     "gemini-pro-latest"
   ];
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GOOGLE_GEMINI_API_KEY}`);
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
     const data = await response.json();
     
     if (data.models) {
@@ -43,7 +41,7 @@ async function getBestModel() {
     console.error("[AI Agent] Failed to list models, falling back:", err);
   }
   
-  const fallback = "gemini-2.0-flash";
+  const fallback = "gemini-1.5-flash";
   console.log(`[AI Agent] Fallback model: ${fallback}`);
   return fallback;
 }
@@ -80,11 +78,13 @@ Results Visibility values: visible, hidden.
 `;
 
 export async function runElectionAgent(message: string, history: any[] = [], adminId: string) {
-  if (!process.env.GOOGLE_GEMINI_API_KEY) {
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
+  if (!apiKey) {
     return { content: "Error: GOOGLE_GEMINI_API_KEY is not configured in the environment." };
   }
 
-  const MODEL_NAME = await getBestModel();
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const MODEL_NAME = await getBestModel(apiKey);
   console.log(`[AI Agent] Initializing with model: ${MODEL_NAME}`);
 
   const model = genAI.getGenerativeModel({
