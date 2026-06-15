@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
-import { ElectionControl } from '@/components/election-control';
 import { AdminAiAssistant } from '@/components/admin-ai-assistant';
 import { supabase, type Candidate } from '@/lib/supabase';
 import {
@@ -138,10 +137,8 @@ export default function AdminDashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Controls & Leaderboard */}
+          {/* Leaderboard & Main Content */}
           <div className="lg:col-span-2 space-y-8">
-            <ElectionControl />
-
             {/* Leaderboard */}
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="px-8 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
