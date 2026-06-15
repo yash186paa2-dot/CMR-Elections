@@ -7,7 +7,6 @@ import {
   ArrowRight,
   BarChart2,
   Briefcase,
-  Circle,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -17,16 +16,11 @@ import {
   GraduationCap,
   Lock,
   LogOut,
-  MapPin,
   Shield,
   Sparkles,
   Wallet,
   type LucideIcon,
   Vote as VoteIcon,
-  Flame,
-  Droplets,
-  Leaf,
-  Wind,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { CandidateCard } from '@/components/candidate-card';
@@ -35,7 +29,7 @@ import { VoteConfirmModal } from '@/components/vote-confirm-modal';
 import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { fetchCandidates } from '@/lib/candidates';
 import { supabase, type Candidate, type Vote, type House } from '@/lib/supabase';
-import { fetchHouses, getHouseTheme, isCandidateHouse, hexToRgb } from '@/lib/houses';
+import { fetchHouses, getHouseTheme, hexToRgb } from '@/lib/houses';
 import { normalizeStatus } from '@/lib/utils';
 
 type SupabaseErrorLike = {
@@ -115,7 +109,6 @@ function groupCandidatesByPosition(candidates: Candidate[]) {
     const position = candidate.position.trim() || 'Unassigned Position';
     const current = grouped.get(position) ?? { candidates: [], order: candidate.display_order ?? 0 };
     current.candidates.push(candidate);
-    // Keep the minimum order found for this position just in case of inconsistency
     if (candidate.display_order < current.order) {
       current.order = candidate.display_order;
     }
@@ -138,7 +131,6 @@ function groupCandidatesByPosition(candidates: Candidate[]) {
 function getPositionVisual(position: string): PositionVisual {
   const normalized = position.toLowerCase();
 
-  // Premium Dark Navy Blue theme for all positions as requested
   if (normalized.includes('president') || normalized.includes('head')) {
     return {
       icon: Crown,
@@ -205,12 +197,10 @@ export default function HomePage() {
   const [hasStartedVoting, setHasStartedVoting] = useState(false);
   const [isReviewScreenOpen, setIsReviewScreenOpen] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
-  const [showResultsAnyway, setShowResultsAnyway] = useState(false);
   const [isSelectingHouse, setIsSelectingHouse] = useState(false);
   const [houseToConfirm, setHouseToConfirm] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
-  const [electionStatus, setElectionStatus] = useState<'open' | 'closed' | 'paused' | 'scheduled' | null>(null);
   const [resultsVisibility, setResultsVisibility] = useState<'visible' | 'hidden'>('hidden');
   const [statusFetched, setStatusFetched] = useState(false);
 
@@ -230,40 +220,33 @@ export default function HomePage() {
     }
   }, [user, isGuest, loading, router]);
 
-  // Realtime settings subscription
   useEffect(() => {
-    const fetchElectionStatus = async () => {
+    const fetchElectionSettings = async () => {
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('election_settings')
           .select('key, value');
         
         if (data) {
-          const statusItem = data.find(i => i.key === 'election_status');
           const visibilityItem = data.find(i => i.key === 'results_visibility');
-          if (statusItem) {
-            const normalized = normalizeStatus(statusItem.value);
-            console.log("STUDENT FETCH STATUS:", normalized);
-            setElectionStatus(normalized as any);
-          }
           if (visibilityItem) {
             setResultsVisibility(normalizeStatus(visibilityItem.value) as any);
           }
         }
         setStatusFetched(true);
       } catch (err) {
-        console.error("Error fetching status:", err);
+        console.error("Error fetching settings:", err);
       }
     };
 
-    void fetchElectionStatus();
+    void fetchElectionSettings();
 
     const channel = supabase
       .channel('public_election_settings')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'election_settings' },
-        () => fetchElectionStatus()
+        () => fetchElectionSettings()
       )
       .subscribe();
 
@@ -272,7 +255,6 @@ export default function HomePage() {
     };
   }, []);
 
-  // Candidates realtime subscription for live results
   useEffect(() => {
     if (resultsVisibility !== 'visible') return;
 
@@ -286,7 +268,6 @@ export default function HomePage() {
           table: 'candidates',
         },
         (payload) => {
-          console.log('[Student] Candidate updated:', payload.new);
           setCandidates((current) =>
             current.map((c) => (c.id === payload.new.id ? { ...c, ...payload.new } : c))
           );
@@ -298,13 +279,6 @@ export default function HomePage() {
       supabase.removeChannel(channel);
     };
   }, [resultsVisibility]);
-
-  // Timer Logic
-  useEffect(() => {
-    if (electionStatus) {
-      console.log("[Student] Normalized current election status:", electionStatus);
-    }
-  }, [electionStatus]);
 
   useEffect(() => {
     const fetchTimer = async () => {
@@ -346,8 +320,6 @@ export default function HomePage() {
         const remaining = Math.max(0, duration - elapsed);
         setTimeLeft(remaining);
       } else if (enabled && status === 'paused') {
-        // For simplicity, we just show the full duration or some fixed value when paused
-        // Real pause logic would require tracking cumulative elapsed time
         setTimeLeft(duration);
       } else {
         setTimeLeft(null);
@@ -355,7 +327,7 @@ export default function HomePage() {
     };
 
     fetchTimer();
-    const interval = setInterval(fetchTimer, 5000); // Polling for timer status changes
+    const interval = setInterval(fetchTimer, 5000);
     return () => clearInterval(interval);
   }, [TIMER_DEFAULTS]);
 
@@ -384,7 +356,7 @@ export default function HomePage() {
     setDataLoading(true);
 
     try {
-      const [candidatesRes, housesRes, votesRes, studentRes, settingsRes] = await Promise.all([
+      const [candidatesRes, housesRes, votesRes, studentRes] = await Promise.all([
         fetchCandidates(),
         fetchHouses(),
         user
@@ -399,8 +371,7 @@ export default function HomePage() {
               .from('students')
               .select('*')
               .eq('auth_user_id', user.id)
-          : Promise.resolve({ data: null, error: null }),
-        supabase.from('election_settings').select('key, value')
+          : Promise.resolve({ data: null, error: null })
       ]);
       const studentRow = Array.isArray(studentRes?.data) ? studentRes.data[0] ?? null : studentRes?.data ?? null;
 
@@ -422,9 +393,7 @@ export default function HomePage() {
 
       setHouses(housesRes.data ?? []);
 
-      // Check if student has already voted
       if (studentRow?.has_voted) {
-        console.log('Student has already voted, redirecting to thank you');
         router.replace('/thank-you');
         return;
       }
@@ -432,33 +401,26 @@ export default function HomePage() {
       let filteredCandidates = candidatesRes.data ?? [];
       let currentStudentHouse: string | null = forcedHouse || null;
       
-      // Database is the single source of truth for authenticated users
       if (user && studentRow?.class) {
         currentStudentHouse = studentRow.class;
-        // Sync localStorage
         if (currentStudentHouse) {
           const key = `selectedHouse_${user.id}`;
           localStorage.setItem(key, currentStudentHouse);
         }
       } else if (!currentStudentHouse) {
-        // Fallback to localStorage only if DB is empty or user is guest
         const key = user ? `selectedHouse_${user.id}` : 'selectedHouse';
         currentStudentHouse = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
       }
 
-      // If authenticated but no house selected in DB or localStorage, show selection screen
       if (user && !currentStudentHouse) {
         setIsSelectingHouse(true);
       } else {
         setIsSelectingHouse(false);
-        
-        // Default for guests if no house selected
         if (isGuest && !currentStudentHouse) {
           currentStudentHouse = housesRes.data?.[0]?.name || 'Agni House';
         }
       }
 
-      // Strict Filtering: Show General candidates ('None') and ONLY student's house candidates
       filteredCandidates = filteredCandidates.filter(
         c => c.house === 'None' || (currentStudentHouse && c.house === currentStudentHouse)
       );
@@ -475,7 +437,7 @@ export default function HomePage() {
     } finally {
       setDataLoading(false);
     }
-  }, [isGuest, user]);
+  }, [isGuest, user, router]);
 
   useEffect(() => {
     if (user || isGuest) {
@@ -511,27 +473,14 @@ export default function HomePage() {
     }
   }, [candidateGroups.length, firstPendingPosition, openPosition, votesByPosition]);
 
-  const votedCandidates = useMemo(
-    () =>
-      votes
-        .map((vote) => candidates.find((candidate) => candidate.id === vote.candidate_id) ?? null)
-        .filter((candidate): candidate is Candidate => candidate !== null),
-    [candidates, votes]
-  );
   const recordedSelections = useMemo(
     () =>
       candidateGroups
         .map((group) => {
           const recordedVote = votesByPosition.get(group.position);
-          if (!recordedVote) {
-            return null;
-          }
-
+          if (!recordedVote) return null;
           const candidate = candidates.find((item) => item.id === recordedVote.candidate_id) ?? null;
-          if (!candidate) {
-            return null;
-          }
-
+          if (!candidate) return null;
           return { position: group.position, candidate };
         })
         .filter((item): item is { position: string; candidate: Candidate } => item !== null),
@@ -539,55 +488,35 @@ export default function HomePage() {
   );
 
   const handleHouseSelect = async (house: string) => {
-    // SECURITY: Fresh check of election status before house selection
-    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
-    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
-
-    if (currentStatus !== 'open' && !isAdmin) {
-      setErrorModal({
-        title: 'Election Not Open',
-        message: 'The election is not currently open for house selection.',
-      });
-      setElectionStatus(currentStatus as any);
-      return;
-    }
-
     if (user) {
       try {
         setVotingLoading(true);
-        const fetchResult = await supabase
+        const { data: existing, error: fetchError } = await supabase
           .from('students')
           .select('id, class')
           .eq('auth_user_id', user.id)
           .maybeSingle();
 
-        const { data: existing, error: fetchError } = fetchResult;
-
         if (fetchError) throw fetchError;
         
-        // Use existing class if available, otherwise use selected house
         const finalHouse = (existing && existing.class && existing.class !== '') ? existing.class : house;
 
-        // Only update if record exists and class is not set
         if (existing && (!existing.class || existing.class === '')) {
-          const updateResult = await supabase
+          const { error: updateError } = await supabase
             .from('students')
             .update({ class: house })
             .eq('auth_user_id', user.id);
 
-          if (updateResult.error) throw updateResult.error;
+          if (updateError) throw updateError;
         }
 
-        // Save selected house in localStorage
         const key = `selectedHouse_${user.id}`;
         localStorage.setItem(key, finalHouse);
         
-        // Update React state
         setSelectedHouse(finalHouse);
         setIsSelectingHouse(false);
         setHouseToConfirm(null);
 
-        // Immediately continue to the voting page
         await fetchData(finalHouse);
       } catch (err) {
         console.error('House selection error:', err);
@@ -599,7 +528,6 @@ export default function HomePage() {
         setVotingLoading(false);
       }
     } else {
-      // Guest mode
       const key = 'selectedHouse';
       localStorage.setItem(key, house);
       setSelectedHouse(house);
@@ -612,26 +540,11 @@ export default function HomePage() {
   const handleVoteConfirm = async () => {
     if (!confirmCandidate) return;
 
-    // SECURITY: Fresh check of election status before vote
-    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
-    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
-
-    if (currentStatus !== 'open' && !isAdmin) {
-      setConfirmCandidate(null);
-      setErrorModal({
-        title: 'Election Not Open',
-        message: `The election is currently ${currentStatus}. You cannot cast a vote at this time.`,
-      });
-      setElectionStatus(currentStatus as any);
-      return;
-    }
-
     if (isGuest) {
       setConfirmCandidate(null);
       setErrorModal({
         title: 'Login Required',
-        message:
-          "You're currently previewing the election. Please log in with your student credentials to cast an official vote.",
+        message: "You're currently previewing the election. Please log in with your student credentials to cast an official vote.",
       });
       return;
     }
@@ -665,16 +578,7 @@ export default function HomePage() {
 
       if (error) throw error;
 
-      const recordedVote =
-        data ??
-        ({
-          id: `${user.id}-${confirmCandidate.id}`,
-          voter_id: user.id,
-          voter_email: user.email ?? '',
-          candidate_id: confirmCandidate.id,
-          position: confirmCandidate.position,
-          created_at: new Date().toISOString(),
-        } satisfies Vote);
+      const recordedVote = data as Vote;
 
       setVotes((current) => [...current, recordedVote].sort((a, b) => a.position.localeCompare(b.position)));
       setSuccessCandidate(confirmCandidate);
@@ -698,8 +602,7 @@ export default function HomePage() {
       console.error('Vote submission error:', err);
       setErrorModal({
         title: 'Voting Error',
-        message:
-          'Your vote could not be submitted. If you already voted, the system will keep your original ballot safe.',
+        message: 'Your vote could not be submitted. Please try again.',
       });
     } finally {
       setVotingLoading(false);
@@ -707,76 +610,16 @@ export default function HomePage() {
   };
 
   const handleFinalBallotSubmit = async () => {
-    if (!user || isGuest) {
-      if (isGuest) {
-        setErrorModal({
-          title: 'Guest Preview',
-          message: 'As a guest, you cannot submit a final ballot. Please log in with your student credentials.',
-        });
-      }
-      return;
-    }
-
-    // SECURITY: Fresh check of election status before final submission
-    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
-    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
-
-    if (currentStatus !== 'open' && !isAdmin) {
-      setErrorModal({
-        title: 'Election Not Open',
-        message: `The election is currently ${currentStatus}. You cannot submit your final ballot at this time.`,
-      });
-      setElectionStatus(currentStatus as any);
-      return;
-    }
+    if (!user || isGuest) return;
 
     setVotingLoading(true);
     try {
-      console.log('FINAL SUBMIT START');
-      console.log('AUTH USER:', user);
-      
-      // Get the currently selected candidates from the votes state
-      const selectedCandidates = votes.map(v => ({
-        position: v.position,
-        candidate_id: v.candidate_id
-      }));
-      console.log('SELECTED CANDIDATES:', selectedCandidates);
-
-      // Verify that the user has actually cast votes for all positions
-      // We already have candidateGroups and votesByPosition from useMemo
-      if (votes.length < candidateGroups.length) {
-        console.warn('Incomplete ballot:', votes.length, '/', candidateGroups.length);
-      }
-
-      // 1. We don't do a bulk insert here because votes are inserted one-by-one in handleVoteConfirm
-      // However, we can log the current votes status as "VOTES INSERT RESULT" to match user's debug request
-      console.log('VOTES INSERT RESULT: Existing votes in state used as source of truth', votes);
-
-      // 2. Update has_voted in students table
-      const updateResult = await supabase
+      const { error: updateError } = await supabase
         .from('students')
         .update({ has_voted: true })
         .eq('auth_user_id', user.id);
 
-      console.log('HAS_VOTED UPDATE RESULT:', updateResult);
-      if (updateResult.error) {
-        console.error('HAS_VOTED UPDATE ERROR:', updateResult.error);
-        throw updateResult.error;
-      }
-
-      // 3. Verify the update
-      const verifyResult = await supabase
-        .from('students')
-        .select('has_voted')
-        .eq('auth_user_id', user.id)
-        .single();
-      
-      console.log('STUDENT VERIFY RESULT:', verifyResult);
-      if (verifyResult.error) {
-        console.error('STUDENT VERIFY ERROR:', verifyResult.error);
-      }
-
-      console.log('REDIRECTING TO THANK YOU PAGE');
+      if (updateError) throw updateError;
       router.push('/thank-you');
     } catch (error) {
       console.error('FINAL SUBMIT ERROR:', error);
@@ -800,30 +643,9 @@ export default function HomePage() {
     );
   }
 
-  if (electionStatus !== 'open' && !isAdmin && !showResultsAnyway) {
-    console.log("[Student] Current election status (Blocking UI):", electionStatus);
-    
-    if (electionStatus === 'paused') {
-      return (
-        <ElectionPausedScreen 
-          onBackToLogin={() => router.replace('/login')}
-        />
-      );
-    }
-
-    return (
-      <ElectionClosedScreen 
-        resultsVisibility={resultsVisibility} 
-        onViewResults={() => setShowResultsAnyway(true)} 
-        onBackToLogin={() => router.replace('/login')}
-      />
-    );
-  }
-
   if (isSelectingHouse) {
     return (
       <div className="fixed inset-0 z-[100] flex flex-col items-center justify-start bg-[#f8fafc] p-4 sm:p-8 overflow-y-auto">
-        {/* Animated Background Elements */}
         <div className="fixed inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] rounded-full bg-blue-500/5 blur-[120px]" />
           <div className="absolute top-[20%] -right-[5%] w-[30%] h-[30%] rounded-full bg-purple-500/5 blur-[100px]" />
@@ -831,28 +653,16 @@ export default function HomePage() {
         </div>
 
         <div className="w-full max-w-2xl animate-fade-in flex flex-col pt-2 sm:pt-4 relative z-10">
-          {/* Logo & Institution Header */}
           <div className="flex flex-col items-center text-center mb-6 sm:mb-8">
             <div className="relative mb-4 h-32 w-32 sm:h-40 sm:w-40 transition-transform duration-700 hover:scale-105">
-              <Image
-                src="/logo.png"
-                alt="CMR Logo"
-                fill
-                className="object-contain drop-shadow-2xl"
-                priority
-              />
+              <Image src="/logo.png" alt="CMR Logo" fill className="object-contain drop-shadow-2xl" priority />
             </div>
             <div className="space-y-1">
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">
-                CMR National PU College
-              </h1>
-              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.4em] text-blue-600/60">
-                Student Council Elections 2026
-              </p>
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">CMR National PU College</h1>
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.4em] text-blue-600/60">Student Council Elections 2026</p>
             </div>
           </div>
           
-          {/* Welcome Card - Glassmorphism */}
           <div className="mb-8 flex flex-col items-center">
             <div className="w-full rounded-[2.5rem] bg-white/40 backdrop-blur-xl p-8 sm:p-10 shadow-[0_8px_32px_0_rgba(15,23,42,0.08)] border border-white/60 text-center relative overflow-hidden group">
               <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-50" />
@@ -860,14 +670,9 @@ export default function HomePage() {
                 <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
                   Welcome, <span className="text-blue-600">{getDisplayName(user)}</span>
                 </h2>
-                
                 <div className="mt-6 flex flex-col items-center">
-                  <div className="inline-block px-4 py-1.5 rounded-full bg-blue-50 text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 mb-4 border border-blue-100/50">
-                    Election Message
-                  </div>
-                  <p className="text-lg sm:text-xl text-slate-700 font-medium leading-relaxed max-w-lg mx-auto italic">
-                    &quot;Your vote is your voice. Choose leaders who will shape the future of CMR.&quot;
-                  </p>
+                  <div className="inline-block px-4 py-1.5 rounded-full bg-blue-50 text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 mb-4 border border-blue-100/50">Election Message</div>
+                  <p className="text-lg sm:text-xl text-slate-700 font-medium leading-relaxed max-w-lg mx-auto italic">"Your vote is your voice. Choose leaders who will shape the future of CMR."</p>
                 </div>
               </div>
             </div>
@@ -880,45 +685,34 @@ export default function HomePage() {
               <div className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200" />
             </div>
 
-            {/* Vertical House List */}
             <div className="space-y-4">
               {houses.map((house) => {
                 const theme = getHouseTheme(house.color, house.name);
                 const isHex = house.color.startsWith('#');
                 const rgb = isHex ? hexToRgb(house.color) : null;
                 const IconComp = theme.icon || Shield;
-                
-                // Tailored glow color based on house
-                const glowStyle = isHex 
-                  ? { '--glow-color': `${rgb?.r} ${rgb?.g} ${rgb?.b}` } as React.CSSProperties
-                  : {};
+                const glowStyle = isHex ? { '--glow-color': `${rgb?.r} ${rgb?.g} ${rgb?.b}` } as React.CSSProperties : {};
 
                 return (
                   <button
                     key={house.id}
                     onClick={() => setHouseToConfirm(house.name)}
                     style={glowStyle}
-                    className={`group relative flex items-center justify-between w-full rounded-[2rem] bg-white border border-slate-200/60 p-6 pr-8 text-left transition-all duration-500 hover:shadow-[0_20px_50px_-12px_rgba(var(--glow-color,100_116_139),0.25)] hover:-translate-y-1.5 active:scale-[0.98] overflow-hidden`}
+                    className="group relative flex items-center justify-between w-full rounded-[2rem] bg-white border border-slate-200/60 p-6 pr-8 text-left transition-all duration-500 hover:shadow-[0_20px_50px_-12px_rgba(var(--glow-color,100_116_139),0.25)] hover:-translate-y-1.5 active:scale-[0.98] overflow-hidden"
                   >
-                    {/* Subtle Gradient Background */}
-                    <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-500 \${theme.surface}`} />
-                    
+                    <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-500 ${theme.surface}`} />
                     <div className="flex items-center gap-6 relative z-10">
-                      <div className={`flex h-16 w-16 items-center justify-center rounded-2xl shadow-inner transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3 \${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }}>
+                      <div className={`flex h-16 w-16 items-center justify-center rounded-2xl shadow-inner transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3 ${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }}>
                         <IconComp className="h-8 w-8 text-white" />
                       </div>
-                      
                       <div className="flex flex-col">
-                        <span className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 transition-colors group-hover:text-blue-600">
-                          {house.name}
-                        </span>
+                        <span className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 transition-colors group-hover:text-blue-600">{house.name}</span>
                         <div className="flex items-center gap-2 mt-1">
-                          <div className={`h-1.5 w-6 rounded-full \${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }} />
+                          <div className={`h-1.5 w-6 rounded-full ${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? house.color : undefined }} />
                           <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Official Ballot</span>
                         </div>
                       </div>
                     </div>
-
                     <div className="relative z-10">
                       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-50 text-slate-400 transition-all duration-500 group-hover:bg-blue-600 group-hover:text-white group-hover:translate-x-2 shadow-sm">
                         <ArrowRight className="h-5 w-5" />
@@ -929,19 +723,8 @@ export default function HomePage() {
               })}
             </div>
           </div>
-
-          {/* Institutional Footer */}
-          <div className="mt-16 mb-8 text-center">
-            <div className="inline-flex items-center gap-3 rounded-full bg-white px-5 py-2.5 border border-slate-100 shadow-sm">
-              <Shield className="h-4 w-4 text-slate-900" />
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                Authorized Secure Student Ballot Portal
-              </p>
-            </div>
-          </div>
         </div>
 
-        {/* Confirmation Modal */}
         {houseToConfirm && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-6">
             <div className="w-full max-w-md animate-scale-in bg-white rounded-[2.5rem] p-10 shadow-2xl border border-white/20">
@@ -951,49 +734,22 @@ export default function HomePage() {
                   const theme = getHouseTheme(houseObj?.color, houseObj?.name);
                   const IconComp = theme.icon || Shield;
                   const isHex = houseObj?.color.startsWith('#');
-                  
                   return (
-                    <div 
-                      className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${!isHex ? theme.borderColor : ''}`}
-                      style={{ backgroundColor: isHex ? houseObj?.color : undefined }}
-                    >
+                    <div className={`mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] shadow-xl ${!isHex ? theme.borderColor : ''}`} style={{ backgroundColor: isHex ? houseObj?.color : undefined }}>
                       <IconComp className="h-10 w-10 text-white" />
                     </div>
                   );
                 })()}
-                
                 <h3 className="text-3xl font-black text-slate-900 tracking-tight">Confirm House</h3>
-                
                 <div className="mt-6 p-6 rounded-3xl bg-slate-50 border border-slate-100 w-full text-center">
                   <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">You have selected</p>
                   <p className="text-2xl font-black text-slate-900 mt-2">{houseToConfirm}</p>
                 </div>
-
-                <p className="mt-8 text-base text-slate-500 font-medium leading-relaxed px-2">
-                  This choice is final and <span className="text-rose-600 font-bold">cannot be changed</span> later. Are you sure?
-                </p>
-
+                <p className="mt-8 text-base text-slate-500 font-medium leading-relaxed px-2">This choice is final and <span className="text-rose-600 font-bold">cannot be changed</span> later. Are you sure?</p>
                 <div className="mt-10 grid grid-cols-2 gap-4 w-full">
-                  <button
-                    onClick={() => setHouseToConfirm(null)}
-                    className="flex h-14 items-center justify-center rounded-2xl border-2 border-slate-100 font-black text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all text-sm uppercase tracking-widest"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (houseToConfirm) {
-                        handleHouseSelect(houseToConfirm);
-                      }
-                    }}
-                    disabled={votingLoading}
-                    className="flex h-14 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-xl hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 text-sm uppercase tracking-widest"
-                  >
-                    {votingLoading ? (
-                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    ) : (
-                      "Confirm"
-                    )}
+                  <button onClick={() => setHouseToConfirm(null)} className="flex h-14 items-center justify-center rounded-2xl border-2 border-slate-100 font-black text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all text-sm uppercase tracking-widest">Cancel</button>
+                  <button onClick={() => houseToConfirm && handleHouseSelect(houseToConfirm)} disabled={votingLoading} className="flex h-14 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-xl hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 text-sm uppercase tracking-widest">
+                    {votingLoading ? <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : "Confirm"}
                   </button>
                 </div>
               </div>
@@ -1001,34 +757,19 @@ export default function HomePage() {
           </div>
         )}
 
-        {errorModal && (
-          <ErrorModal
-            title={errorModal.title}
-            message={errorModal.message}
-            onDismiss={() => setErrorModal(null)}
-          />
-        )}
+        {errorModal && <ErrorModal title={errorModal.title} message={errorModal.message} onDismiss={() => setErrorModal(null)} />}
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#eef2f7] text-slate-950 relative">
-      {/* Results Published Banner */}
-      {resultsVisibility === 'visible' && (electionStatus === 'open' || showResultsAnyway) && (
+      {resultsVisibility === 'visible' && (
         <div className="bg-emerald-600 text-white py-3 px-6 text-center font-bold sticky top-0 z-[45] shadow-lg animate-in slide-in-from-top duration-500">
           <div className="flex items-center justify-center gap-3">
             <Sparkles className="h-5 w-5 animate-pulse" />
             <span>Official Election Results are now LIVE!</span>
-            <button 
-              onClick={() => {
-                const el = document.getElementById('results-section');
-                el?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className="ml-4 bg-white text-emerald-600 px-4 py-1 rounded-full text-sm hover:bg-emerald-50 transition-colors"
-            >
-              View Results
-            </button>
+            <button onClick={() => document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' })} className="ml-4 bg-white text-emerald-600 px-4 py-1 rounded-full text-sm hover:bg-emerald-50 transition-colors">View Results</button>
           </div>
         </div>
       )}
@@ -1036,64 +777,24 @@ export default function HomePage() {
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <Image
-              src="/logo.png"
-              alt="CMR National PU College"
-              width={40}
-              height={40}
-              className="h-10 w-10 shrink-0 rounded-xl object-contain"
-            />
+            <Image src="/logo.png" alt="CMR" width={40} height={40} className="h-10 w-10 shrink-0 rounded-xl object-contain" />
             <div className="min-w-0">
               <p className="truncate text-sm font-bold text-slate-900 sm:text-base">CMR Elections</p>
-              <p className="truncate text-[10px] font-medium text-slate-500 sm:text-xs">
-                Official Student Ballot 2026
-              </p>
+              <p className="truncate text-[10px] font-medium text-slate-500 sm:text-xs">Official Student Ballot 2026</p>
             </div>
           </div>
-
           <div className="flex shrink-0 items-center gap-2">
             {timeLeft !== null && (
-              <div className={`mr-2 hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold sm:flex ${
-                timeLeft < 10 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-700'
-              }`}>
+              <div className={`mr-2 hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold sm:flex ${timeLeft < 10 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-700'}`}>
                 <Clock className="h-3.5 w-3.5" />
-                <span>
-                  {timeLeft > 0 ? (
-                    `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}`
-                  ) : (
-                    "Time's Up!"
-                  )}
-                </span>
+                <span>{timeLeft > 0 ? `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}` : "Time's Up!"}</span>
               </div>
             )}
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => router.push('/admin')}
-                className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-              >
-                <BarChart2 className="h-4 w-4" aria-hidden />
-                <span className="hidden sm:inline">Admin</span>
-              </button>
-            )}
+            {isAdmin && <button onClick={() => router.push('/admin')} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><BarChart2 className="h-4 w-4" /><span className="hidden sm:inline">Admin</span></button>}
             {isGuest ? (
-              <button
-                type="button"
-                onClick={() => router.push('/login')}
-                className="flex min-h-10 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white hover:bg-blue-800"
-              >
-                <LogOut className="h-4 w-4 rotate-180" aria-hidden />
-                <span>Log in</span>
-              </button>
+              <button onClick={() => router.push('/login')} className="flex min-h-10 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white hover:bg-blue-800"><LogOut className="h-4 w-4 rotate-180" /><span>Log in</span></button>
             ) : (
-              <button
-                type="button"
-                onClick={signOut}
-                className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 hover:bg-rose-100"
-              >
-                <LogOut className="h-4 w-4" aria-hidden />
-                <span className="hidden sm:inline">Sign out</span>
-              </button>
+              <button onClick={signOut} className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 hover:bg-rose-100"><LogOut className="h-4 w-4" /><span className="hidden sm:inline">Sign out</span></button>
             )}
           </div>
         </div>
@@ -1104,57 +805,24 @@ export default function HomePage() {
           <div className="absolute inset-x-8 top-0 h-32 rounded-full bg-gradient-to-r from-sky-200/60 via-violet-200/60 to-emerald-200/60 blur-3xl" />
           <div className="relative grid gap-6 lg:grid-cols-[1.2fr_0.85fr]">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-700">
-                <Shield className="h-3.5 w-3.5" aria-hidden />
-                Secure Student Ballot
-              </div>
-              <h1 className="mt-5 text-3xl font-black tracking-tight text-slate-950 sm:text-5xl">
-                CMR National PU College
-              </h1>
-              <p className="mt-2 text-base font-semibold text-slate-700 sm:text-lg">
-                Student Council Elections 2026
-              </p>
-              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
-                A guided voting experience for first-time student voters. Browse one position at a
-                time, select your candidate, and confirm each vote with confidence.
-              </p>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-700"><Shield className="h-3.5 w-3.5" />Secure Student Ballot</div>
+              <h1 className="mt-5 text-3xl font-black tracking-tight text-slate-950 sm:text-5xl">CMR National PU College</h1>
+              <p className="mt-2 text-base font-semibold text-slate-700 sm:text-lg">Student Council Elections 2026</p>
+              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">A guided voting experience for first-time student voters. Choose your candidate and confirm each vote with confidence.</p>
               <div className="mt-6 flex flex-wrap gap-3">
-                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Progress
-                  </p>
-                  <p className="mt-1 text-lg font-black text-slate-950">
-                    {completedPositions} / {totalPositions || 0}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Voter
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-slate-950">
-                    {isGuest ? 'Guest Preview' : getDisplayName(user)}
-                  </p>
-                </div>
+                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Progress</p><p className="mt-1 text-lg font-black text-slate-950">{completedPositions} / {totalPositions}</p></div>
+                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Voter</p><p className="mt-1 text-lg font-bold text-slate-950">{isGuest ? 'Guest' : getDisplayName(user)}</p></div>
                 {selectedHouse && (
-                  <div className={`rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50`}>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Your House
-                    </p>
+                  <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/50">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Your House</p>
                     <div className="mt-1 flex items-center gap-2">
                       {(() => {
                         const houseObj = houses.find(h => h.name === selectedHouse);
                         const theme = getHouseTheme(houseObj?.color, houseObj?.name);
                         const isHex = houseObj?.color.startsWith('#');
-                        return (
-                          <div 
-                            className={`h-2.5 w-2.5 rounded-full ${!isHex ? `bg-gradient-to-r ${theme.accent}` : ''}`} 
-                            style={{ backgroundColor: isHex ? houseObj?.color : undefined }}
-                          />
-                        );
+                        return <div className={`h-2.5 w-2.5 rounded-full ${!isHex ? `bg-gradient-to-r ${theme.accent}` : ''}`} style={{ backgroundColor: isHex ? houseObj?.color : undefined }} />;
                       })()}
-                      <p className="text-lg font-black text-slate-950">
-                        {selectedHouse}
-                      </p>
+                      <p className="text-lg font-black text-slate-950">{selectedHouse}</p>
                     </div>
                   </div>
                 )}
@@ -1164,162 +832,48 @@ export default function HomePage() {
             <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-slate-950 px-5 py-6 text-white shadow-xl shadow-slate-900/10">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(56,189,248,0.24),_transparent_42%),radial-gradient(circle_at_bottom_left,_rgba(168,85,247,0.22),_transparent_38%)]" />
               <div className="relative">
-                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                  Please read before you vote
-                </div>
-                <p className="mt-4 text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  What Happens Next
-                </p>
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200"><Sparkles className="h-3.5 w-3.5" />Read before you vote</div>
                 <ul className="mt-4 space-y-3 text-sm text-slate-200">
-                  <li className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
-                      1
-                    </span>
-                    Start the guided ballot.
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
-                      2
-                    </span>
-                    Open one position at a time and choose a candidate.
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
-                      3
-                    </span>
-                    Confirm each selection and continue automatically.
-                  </li>
+                  <li className="flex items-start gap-3"><span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">1</span>Start guided ballot.</li>
+                  <li className="flex items-start gap-3"><span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">2</span>Choose one candidate per position.</li>
+                  <li className="flex items-start gap-3"><span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">3</span>Confirm and submit your final ballot.</li>
                 </ul>
-                <div className="mt-5 h-2 rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-sky-400 to-violet-400 transition-all duration-500"
-                    style={{ width: `${progressPercentage}%` }}
-                  />
-                </div>
-                <p className="mt-3 text-sm text-slate-300">
-                  {allPositionsCompleted
-                    ? 'All positions are complete. Review your submitted ballot summary below.'
-                    : `${Math.max(totalPositions - completedPositions, 0)} position${Math.max(totalPositions - completedPositions, 0) === 1 ? '' : 's'} remaining.`}
-                </p>
+                <div className="mt-5 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-sky-400 to-violet-400 transition-all duration-500" style={{ width: `${progressPercentage}%` }} /></div>
               </div>
             </div>
           </div>
         </section>
 
         {dataLoading ? (
-          <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="h-48 rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
-                <div className="p-6">
-                  <div className="h-10 w-10 rounded-2xl bg-slate-100" />
-                  <div className="mt-4 h-5 w-32 rounded bg-slate-100" />
-                  <div className="mt-3 h-4 w-full rounded bg-slate-100" />
-                  <div className="mt-2 h-4 w-2/3 rounded bg-slate-100" />
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-48 rounded-[1.5rem] border border-slate-200 bg-white shadow-sm" />)}</div>
         ) : candidates.length === 0 ? (
           <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
-              <VoteIcon className="h-6 w-6 text-slate-500" aria-hidden />
-            </div>
             <h2 className="text-lg font-bold text-slate-950">Ballot is not ready yet</h2>
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-600">
-              No candidates are available at the moment. Please check back later or contact the
-              election committee.
-            </p>
           </div>
         ) : (
           <>
-            {(electionStatus === 'open' || isAdmin) ? (
-              <>
-                {!hasStartedVoting && !isReviewScreenOpen ? (
+            {!hasStartedVoting && !isReviewScreenOpen ? (
               <section className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
                 <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Election Home
-                  </p>
-                  <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
-                    Start your guided ballot
-                  </h2>
-                  <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
-                    Candidates are grouped by position so you only see one decision at a time.
-                    This keeps the ballot focused, mobile-friendly, and easy to complete.
-                  </p>
-                  <div className="mt-6 rounded-[1.5rem] border border-slate-200/80 bg-slate-50/80 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Progress
-                    </p>
-                    <p className="mt-2 text-2xl font-black text-slate-950">
-                      {completedPositions} / {totalPositions || 0} Positions Completed
-                    </p>
-                    <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
-                      <div
-                        className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
-                        style={{ width: `${progressPercentage}%` }}
-                      />
-                    </div>
-                  </div>
+                  <h2 className="text-3xl font-black text-slate-950">Start your guided ballot</h2>
                   <div className="mt-10">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHasStartedVoting(true);
-                        setIsReviewScreenOpen(false);
-                        if (!openPosition) {
-                          setOpenPosition(firstPendingPosition ?? candidateGroups[0]?.position ?? null);
-                        }
-                      }}
-                      className="flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] bg-[#002B5B] px-8 text-lg font-black uppercase tracking-wide text-white shadow-[0_12px_24px_-8px_rgba(0,43,91,0.4)] transition-all hover:-translate-y-0.5 hover:bg-[#003a7a] active:scale-[0.98]"
-                    >
-                      <span>{completedPositions > 0 ? 'Continue Guided Ballot' : 'Start Guided Ballot'}</span>
-                      <ArrowRight className="h-5 w-5" aria-hidden />
+                    <button onClick={() => { setHasStartedVoting(true); setIsReviewScreenOpen(false); if (!openPosition) setOpenPosition(firstPendingPosition || candidateGroups[0]?.position); }} className="flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] bg-[#002B5B] px-8 text-lg font-black uppercase tracking-wide text-white transition-all hover:-translate-y-0.5 active:scale-[0.98]">
+                      <span>{completedPositions > 0 ? 'Continue' : 'Start'} Guided Ballot</span>
+                      <ArrowRight className="h-5 w-5" />
                     </button>
-                    <p className="mt-4 text-center text-xs font-semibold uppercase tracking-widest text-slate-400">
-                      Guided step-by-step experience
-                    </p>
                   </div>
                 </div>
-
                 <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Position Overview
-                  </p>
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Position Overview</p>
                   <div className="mt-5 space-y-3">
                     {candidateGroups.map((group) => {
                       const visual = getPositionVisual(group.position);
-                      const Icon = visual.icon;
                       const isCompleted = votesByPosition.has(group.position);
-
                       return (
-                        <div
-                          key={group.position}
-                          className={`rounded-[1.35rem] border bg-gradient-to-br ${visual.surface} ${visual.border} px-4 py-4 shadow-sm`}
-                        >
+                        <div key={group.position} className={`rounded-[1.35rem] border bg-gradient-to-br ${visual.surface} ${visual.border} px-4 py-4 shadow-sm`}>
                           <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/80 bg-white/80 shadow-sm">
-                              <Icon className={`h-5 w-5 ${visual.tint}`} aria-hidden />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-base font-semibold text-white">
-                                {group.position}
-                              </p>
-                              <p className="text-xs text-blue-100">
-                                {group.candidates.length} Candidate
-                                {group.candidates.length === 1 ? '' : 's'}
-                              </p>
-                            </div>
-                            <div
-                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                                isCompleted
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-white text-[#001F3F]'
-                              }`}
-                            >
-                              {isCompleted ? 'Completed' : 'Not Voted'}
-                            </div>
+                            <div className="min-w-0 flex-1"><p className="truncate text-base font-semibold text-white">{group.position}</p></div>
+                            <div className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-[#001F3F]'}`}>{isCompleted ? 'Voted' : 'Pending'}</div>
                           </div>
                         </div>
                       );
@@ -1330,676 +884,121 @@ export default function HomePage() {
             ) : isReviewScreenOpen ? (
               <section className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
                 <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Review
-                      </p>
-                      <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
-                        Review your selections
-                      </h2>
-                      <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-base">
-                        This summary reflects the votes already recorded for each position.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsReviewScreenOpen(false);
-                        setHasStartedVoting(true);
-                      }}
-                      className="flex min-h-[44px] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]"
-                    >
-                      <ArrowRight className="h-4 w-4 rotate-180" aria-hidden />
-                      <span>Back to Ballot</span>
-                    </button>
+                  <div className="flex justify-between items-end">
+                    <h2 className="text-3xl font-black text-slate-950">Review selections</h2>
+                    <button onClick={() => { setIsReviewScreenOpen(false); setHasStartedVoting(true); }} className="flex h-11 items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700">Back</button>
                   </div>
-
                   <div className="mt-6 space-y-4">
                     {recordedSelections.map(({ position, candidate }) => (
-                      <div
-                        key={position}
-                        className="rounded-[1.5rem] border border-emerald-200/80 bg-white/80 p-4 shadow-sm shadow-emerald-100/50 sm:p-5"
-                      >
-                        <div className="flex items-start gap-4">
-                          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-200">
-                            {candidate.photo_url ? (
-                              <Image
-                                src={candidate.photo_url}
-                                alt={candidate.name}
-                                fill
-                                className="object-contain bg-slate-100"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center bg-slate-100">
-                                <VoteIcon className="h-6 w-6 text-slate-400" aria-hidden />
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                              {position}
-                            </p>
-                            <p className="mt-1 truncate text-lg font-bold text-slate-950">
-                              {candidate.name}
-                            </p>
-                            <p className="mt-1 text-sm text-slate-600">
-                              {candidate.department} · {candidate.year}
-                            </p>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                            <CheckCircle2 className="h-4 w-4" aria-hidden />
-                            Submitted
-                          </div>
-                        </div>
+                      <div key={position} className="rounded-[1.5rem] border border-emerald-200 bg-white/80 p-4 flex items-center gap-4">
+                        <div className="min-w-0 flex-1"><p className="text-xs font-semibold text-slate-500 uppercase">{position}</p><p className="text-lg font-bold text-slate-950">{candidate.name}</p></div>
+                        <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-semibold">Submitted</div>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <aside className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Ballot Status
-                  </p>
-                  <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
-                    {allPositionsCompleted ? 'Ballot completed' : 'Voting in progress'}
-                  </h3>
-                  <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-200/80">
-                    <div
-                      className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500"
-                      style={{ width: `${progressPercentage}%` }}
-                    />
-                  </div>
-                  <p className="mt-4 text-sm font-semibold text-slate-700">
-                    {completedPositions} / {totalPositions || 0} positions completed
-                  </p>
-                  
+                <aside className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-xl sm:p-8">
+                  <h3 className="text-2xl font-black text-slate-950">{allPositionsCompleted ? 'Ready to submit' : 'In progress'}</h3>
                   {allPositionsCompleted && (
-                    <div className="mt-8 space-y-4">
-                      <button
-                        type="button"
-                        onClick={handleFinalBallotSubmit}
-                        disabled={votingLoading}
-                        className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98] disabled:opacity-50"
-                      >
-                        {votingLoading ? (
-                           <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                        ) : (
-                          <>
-                            <CheckCircle2 className="h-6 w-6" aria-hidden />
-                            <span>Submit Final Ballot</span>
-                          </>
-                        )}
-                      </button>
-                      <p className="text-center text-xs font-medium text-slate-500">
-                        Your official ballot is ready for final submission
-                      </p>
-                    </div>
+                    <button onClick={handleFinalBallotSubmit} disabled={votingLoading} className="mt-8 flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase text-white shadow-lg transition-all active:scale-[0.98] disabled:opacity-50">
+                      {votingLoading ? <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : "Submit Final Ballot"}
+                    </button>
                   )}
-
-                  <div className="mt-6 rounded-[1.5rem] border border-emerald-200 bg-emerald-50/50 p-5 text-sm leading-relaxed text-emerald-800">
-                    <div className="flex items-start gap-3">
-                      <Shield className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                      <p>
-                        Vote submission logic remains unchanged. Each confirmed position is recorded
-                        immediately and shown here as part of the final ballot summary.
-                      </p>
-                    </div>
-                  </div>
                 </aside>
               </section>
             ) : (
               <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="space-y-4">
-                  <div className="glass-panel rounded-[1.75rem] border border-white/70 p-5 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-6">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                          Guided Ballot
-                        </p>
-                        <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
-                          Vote one position at a time
-                        </h2>
-                        <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                          Only one accordion opens at a time, so the ballot stays focused and easy
-                          to use on mobile.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsReviewScreenOpen(true)}
-                        className="flex min-h-[44px] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]"
-                      >
-                        <FileText className="h-4 w-4" aria-hidden />
-                        <span>Review My Ballot</span>
-                      </button>
-                    </div>
-                  <div className="mt-5 rounded-[1.35rem] border border-slate-200/80 bg-white/85 p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                            Current Progress
-                          </p>
-                          <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">
-                            {completedPositions} / {totalPositions || 0} Positions Completed
-                          </p>
-                        </div>
-                        <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                          {progressPercentage}%
-                        </div>
-                      </div>
-                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
-                        <div
-                          className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
-                          style={{ width: `${progressPercentage}%` }}
-                        />
-                      </div>
+                  <div className="glass-panel rounded-[1.75rem] border border-white/70 p-5 shadow-xl sm:p-6">
+                    <div className="flex justify-between items-end">
+                      <h2 className="text-2xl font-black text-slate-950">Guided Ballot</h2>
+                      <button onClick={() => setIsReviewScreenOpen(true)} className="flex h-11 items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-5 text-sm font-bold text-slate-700">Review</button>
                     </div>
                   </div>
-
                   {candidateGroups.map((group) => {
                     const visual = getPositionVisual(group.position);
-                    const Icon = visual.icon;
                     const selectedCandidateId = selectedCandidateIds[group.position];
-                    const selectedCandidate =
-                      group.candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
+                    const selectedCandidate = group.candidates.find(c => c.id === selectedCandidateId) || null;
                     const votedForPosition = votesByPosition.get(group.position);
-                    const submittedCandidate =
-                      votedForPosition
-                        ? candidates.find((candidate) => candidate.id === votedForPosition.candidate_id) ?? null
-                        : null;
+                    const submittedCandidate = votedForPosition ? candidates.find(c => c.id === votedForPosition.candidate_id) || null : null;
                     const isOpen = openPosition === group.position && !isReviewScreenOpen;
-                    const isMissing = !votedForPosition && !isReviewScreenOpen && showValidationErrors;
 
                     return (
-                      <section
-                        key={group.position}
-                        id={`position-${group.position.replace(/\s+/g, '-').toLowerCase()}`}
-                        className={`glass-panel overflow-hidden rounded-[1.75rem] border transition-all duration-500 ${
-                          isMissing && !selectedCandidate ? 'border-red-400 ring-4 ring-red-50 shadow-xl shadow-red-100/50' : 'border-white/70 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setOpenPosition(group.position)}
-                          className={`flex w-full items-start gap-4 px-4 py-4 text-left transition sm:px-6 sm:py-5 ${
-                            isOpen ? 'bg-white/80' : 'bg-white/65 hover:bg-white/85'
-                          }`}
-                          aria-expanded={isOpen}
-                        >
-                          <div
-                            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border bg-gradient-to-br shadow-sm ${visual.border} ${visual.surface}`}
-                          >
-                            <Icon className={`h-6 w-6 ${visual.tint}`} aria-hidden />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2.5">
-                              <h3 className={`text-xl font-black tracking-tight sm:text-2xl ${isOpen ? 'text-[#001F3F]' : 'text-slate-950'}`}>
-                                {group.position}
-                              </h3>
-                              {votedForPosition && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                                  Completed
-                                </span>
-                              )}
-                            </div>
-                            <p className="mt-1 text-sm font-medium text-slate-600">
-                              {group.candidates.length} candidate
-                              {group.candidates.length === 1 ? '' : 's'}
-                              {submittedCandidate ? ` · ${submittedCandidate.name} selected` : ''}
-                              {!submittedCandidate && selectedCandidate
-                                ? ` · ${selectedCandidate.name} selected`
-                                : ''}
-                            </p>
-                          </div>
-                          <div className="flex flex-col items-end gap-2">
-                            <div
-                              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                votedForPosition
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : selectedCandidate
-                                    ? 'bg-sky-100 text-sky-700'
-                                    : isMissing ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-white/80 text-slate-600'
-                              }`}
-                            >
-                              {votedForPosition
-                                ? 'Voted'
-                                : selectedCandidate
-                                  ? 'Ready to confirm'
-                                  : isMissing ? 'Missing Vote' : 'Not Voted'}
-                            </div>
-                            <ChevronDown
-                              className={`h-5 w-5 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                              aria-hidden
-                            />
-                          </div>
+                      <section key={group.position} className="glass-panel rounded-[1.75rem] border border-white/70 overflow-hidden">
+                        <button onClick={() => setOpenPosition(group.position)} className={`flex w-full items-center gap-4 px-6 py-5 text-left ${isOpen ? 'bg-white' : 'bg-white/60'}`}>
+                          <div className={`h-14 w-14 rounded-2xl flex items-center justify-center bg-gradient-to-br ${visual.surface} text-white`}><Crown className="h-6 w-6" /></div>
+                          <div className="flex-1"><h3 className="text-xl font-black">{group.position}</h3></div>
+                          <ChevronDown className={`h-5 w-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                         </button>
-
-                        <div
-                          className={`accordion-panel overflow-hidden border-t border-slate-200/70 bg-white/75 transition-all duration-300 ease-out ${
-                            isOpen ? 'max-h-[2200px] opacity-100' : 'max-h-0 opacity-0'
-                          }`}
-                        >
-                          <div className="px-4 py-4 sm:px-6 sm:py-6">
-                            {votedForPosition && submittedCandidate ? (
-                              <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-900">
-                                <div className="flex items-start gap-3">
-                                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100">
-                                    <Check className="h-5 w-5 text-emerald-700" aria-hidden />
-                                  </div>
-                                  <div>
-                                    <p className="text-base font-bold">{group.position} completed</p>
-                                    <p className="mt-1 text-sm text-emerald-800">
-                                      Your recorded vote is <strong>{submittedCandidate.name}</strong>.
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
+                        {isOpen && (
+                          <div className="px-6 py-6 bg-white/40 border-t border-slate-100">
+                            {submittedCandidate ? (
+                              <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-900 font-bold">Voted for {submittedCandidate.name}</div>
                             ) : (
                               <>
-                                <div className="grid grid-cols-2 gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                                  {group.candidates.map((candidate, index) => (
-                                    <CandidateCard
-                                      key={candidate.id}
-                                      candidate={candidate}
-                                      hasVoted={votesByPosition.has(candidate.position)}
-                                      isVotedFor={
-                                        votedCandidateIds.has(candidate.id) ||
-                                        selectedCandidateIds[candidate.position] === candidate.id
-                                      }
-                                      onSelect={(nextCandidate) => {
-                                        if (votesByPosition.has(nextCandidate.position)) return;
-                                        setSelectedCandidateIds((current) => ({
-                                          ...current,
-                                          [nextCandidate.position]: nextCandidate.id,
-                                        }));
-                                      }}
-                                      rank={index}
-                                    />
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                  {group.candidates.map((c, idx) => (
+                                    <CandidateCard key={c.id} candidate={c} hasVoted={!!votedForPosition} isVotedFor={selectedCandidateId === c.id} onSelect={(next) => setSelectedCandidateIds(prev => ({ ...prev, [next.position]: next.id }))} rank={idx} />
                                   ))}
                                 </div>
-
-                                <div className="sticky bottom-4 mt-6 animate-scale-in rounded-[1.5rem] border border-slate-200/80 bg-white/95 p-4 shadow-xl shadow-slate-200/60 backdrop-blur sm:p-5">
-                                  <div className="flex flex-col gap-4">
-                                    <div className="flex flex-col gap-1 px-1">
-                                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                        Current Selection
-                                      </p>
-                                      <p className="text-lg font-black text-slate-950">
-                                        {selectedCandidate
-                                          ? selectedCandidate.name
-                                          : `Choose a candidate for ${group.position}`}
-                                      </p>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => selectedCandidate && setConfirmCandidate(selectedCandidate)}
-                                      disabled={!selectedCandidate || votingLoading}
-                                      className={`flex min-h-[56px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-6 text-lg font-black uppercase tracking-wide transition-all duration-300 ${
-                                        selectedCandidate
-                                          ? 'bg-[#002B5B] text-white shadow-[0_12px_24px_-8px_rgba(0,43,91,0.4)] hover:-translate-y-0.5 hover:bg-[#003a7a] active:scale-[0.98]'
-                                          : 'cursor-not-allowed bg-slate-100 text-slate-400'
-                                      }`}
-                                    >
-                                      {selectedCandidate ? (
-                                        <>
-                                          <VoteIcon className="h-5 w-5" aria-hidden />
-                                          <span>Submit Vote</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Lock className="h-5 w-5" aria-hidden />
-                                          <span>Select a Candidate</span>
-                                        </>
-                                      )}
-                                    </button>
-                                  </div>
+                                <div className="mt-6 pt-6 border-t border-slate-100">
+                                  <button onClick={() => selectedCandidate && setConfirmCandidate(selectedCandidate)} disabled={!selectedCandidate || votingLoading} className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest transition-all ${selectedCandidate ? 'bg-[#002B5B] text-white' : 'bg-slate-100 text-slate-400'}`}>Submit Vote</button>
                                 </div>
                               </>
                             )}
                           </div>
-                        </div>
+                        )}
                       </section>
                     );
                   })}
                 </div>
-
                 <aside className="hidden xl:block">
-                  <div className="sticky top-24 space-y-4">
-                    <div className="glass-panel rounded-[1.75rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]">
-                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Voting Progress
-                      </p>
-                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200/80">
-                        <div
-                          className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
-                          style={{ width: `${progressPercentage}%` }}
-                        />
-                      </div>
-                      <p className="mt-3 text-2xl font-black text-slate-950">
-                        {completedPositions} / {totalPositions || 0}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">Positions completed</p>
-                      
-                      {!allPositionsCompleted && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowValidationErrors(true);
-                            if (completedPositions < totalPositions) {
-                              setErrorModal({
-                                title: 'Incomplete Ballot',
-                                message: 'Please vote for all required positions before submitting.',
-                              });
-                              // Find first missing position and scroll to it
-                              const missing = candidateGroups.find(g => !votesByPosition.has(g.position));
-                              if (missing) {
-                                setOpenPosition(missing.position);
-                                const el = document.getElementById(`position-${missing.position.replace(/\s+/g, '-').toLowerCase()}`);
-                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                              }
-                              return;
-                            }
-                            setIsReviewScreenOpen(true);
-                          }}
-                          className="mt-6 flex min-h-[56px] w-full items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-6 text-base font-bold text-white shadow-lg transition-all hover:bg-[#003a7a] active:scale-[0.98]"
-                        >
-                          <FileText className="h-5 w-5" />
-                          Submit Your Vote
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="glass-panel rounded-[1.75rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)]">
-                      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Next Up
-                      </p>
-                      <p className="mt-2 text-lg font-bold text-slate-950">
-                        {firstPendingPosition ?? 'All positions completed'}
-                      </p>
-                    </div>
+                  <div className="sticky top-24 glass-panel rounded-[1.75rem] border border-white/70 p-6 shadow-xl">
+                    <h3 className="text-2xl font-black mb-4">Progress</h3>
+                    <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-600 transition-all duration-500" style={{ width: `${progressPercentage}%` }} /></div>
+                    <p className="mt-4 font-bold">{completedPositions} / {totalPositions} Completed</p>
+                    {allPositionsCompleted && <button onClick={handleFinalBallotSubmit} className="mt-6 w-full py-4 rounded-xl bg-emerald-600 text-white font-bold uppercase">Submit Final Ballot</button>}
                   </div>
                 </aside>
               </section>
-            )}
-
-        {hasStartedVoting && totalPositions > 0 && (
-          <div className="fixed inset-x-0 bottom-0 z-40 bg-white/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-20px_40px_-15px_rgba(15,23,42,0.1)] backdrop-blur-md xl:hidden">
-            <div className="mx-auto max-w-lg">
-              {timeLeft !== null && (
-                <div className={`mb-3 flex items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-black uppercase tracking-widest ${
-                  timeLeft < 10 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-700'
-                }`}>
-                  <Clock className="h-3.5 w-3.5" />
-                  <span>Time Remaining: {timeLeft > 0 ? `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}` : "Time's Up!"}</span>
-                </div>
-              )}
-              {!isReviewScreenOpen && (
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                      Voting Progress
-                    </p>
-                    <p className="text-xs font-bold text-slate-900">
-                      {completedPositions} / {totalPositions || 0} completed
-                    </p>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="progress-shimmer h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-all duration-500"
-                      style={{ width: `${progressPercentage}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {allPositionsCompleted ? (
-                <button
-                  type="button"
-                  onClick={handleFinalBallotSubmit}
-                  disabled={votingLoading}
-                  className="flex min-h-[60px] w-full items-center justify-center gap-3 rounded-2xl bg-[#059669] px-8 text-lg font-black uppercase tracking-widest text-white shadow-[0_20px_40px_-12px_rgba(5,150,105,0.4)] transition-all hover:bg-[#047857] active:scale-[0.98] disabled:opacity-50"
-                >
-                   {votingLoading ? (
-                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                   ) : (
-                     <>
-                       <CheckCircle2 className="h-6 w-6" aria-hidden />
-                       <span>Submit Final Ballot</span>
-                     </>
-                   )}
-                </button>
-              ) : (
-                <div className="flex gap-3">
-                  {!isReviewScreenOpen && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowValidationErrors(true);
-                        if (completedPositions < totalPositions) {
-                          setErrorModal({
-                            title: 'Incomplete Ballot',
-                            message: 'Please vote for all required positions before submitting.',
-                          });
-                          const missing = candidateGroups.find(g => !votesByPosition.has(g.position));
-                          if (missing) {
-                            setOpenPosition(missing.position);
-                            const el = document.getElementById(`position-${missing.position.replace(/\s+/g, '-').toLowerCase()}`);
-                            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          }
-                          return;
-                        }
-                        setIsReviewScreenOpen(true);
-                      }}
-                      className="flex min-h-[56px] flex-1 items-center justify-center gap-3 rounded-2xl bg-[#002B5B] px-6 text-base font-bold text-white shadow-lg active:scale-[0.98]"
-                    >
-                      <FileText className="h-5 w-5" />
-                      <span>Submit Your Vote</span>
-                    </button>
-                  )}
-                  {isReviewScreenOpen && (
-                    <button
-                      type="button"
-                      onClick={() => setIsReviewScreenOpen(false)}
-                      className="flex min-h-[56px] flex-1 items-center justify-center gap-2 rounded-2xl border-2 border-slate-200 bg-white px-6 text-base font-bold text-slate-700 shadow-sm active:scale-[0.98]"
-                    >
-                      <ArrowRight className="h-5 w-5 rotate-180" />
-                      <span>Back to Ballot</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </>
-    ) : (
-              <div className="mt-8 text-center py-12 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50">
-                  <Lock className="h-6 w-6 text-amber-600" />
-                </div>
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight uppercase">Voting Suspended</h2>
-                <p className="mt-2 text-slate-500 font-medium">The ballot is currently closed or paused. Live results are displayed below if published.</p>
-                <button 
-                  onClick={() => {
-                    const el = document.getElementById('results-section');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="mt-6 flex items-center justify-center gap-2 mx-auto px-6 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-all"
-                >
-                  <BarChart2 className="w-4 h-4" />
-                  Scroll to Results
-                </button>
-              </div>
             )}
           </>
         )}
 
         {resultsVisibility === 'visible' && (
-          <section id="results-section" className="mt-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="glass-panel rounded-[2rem] border border-emerald-200 bg-emerald-50/30 p-8 shadow-xl">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h2 className="text-3xl font-black text-slate-900 tracking-tight">Official Election Results</h2>
-                  <p className="text-slate-500 font-medium mt-1">Real-time tabulated votes across all positions</p>
-                </div>
-                <div className="h-12 w-12 rounded-2xl bg-emerald-100 flex items-center justify-center">
-                  <BarChart2 className="h-6 w-6 text-emerald-600" />
-                </div>
-              </div>
-
-              <div className="space-y-12">
-                {candidateGroups.map((group) => (
-                  <div key={group.position} className="space-y-4">
-                    <h3 className="text-xl font-black text-slate-800 border-l-4 border-emerald-500 pl-4">
-                      {group.position}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {group.candidates
-                        .sort((a, b) => b.vote_count - a.vote_count)
-                        .map((candidate) => {
-                          const maxVotes = Math.max(...group.candidates.map(c => c.vote_count));
-                          const percentage = maxVotes > 0 ? (candidate.vote_count / maxVotes) * 100 : 0;
-                          
-                          return (
-                            <div key={candidate.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                              <div className="flex items-center justify-between mb-3">
-                                <p className="font-bold text-slate-900 truncate pr-2">{candidate.name}</p>
-                                <span className="text-lg font-black text-emerald-600">{candidate.vote_count}</span>
-                              </div>
-                              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-emerald-500 rounded-full transition-all duration-1000"
-                                  style={{ width: `${percentage}%` }}
-                                />
-                              </div>
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                                {candidate.vote_count === 1 ? 'Vote' : 'Votes'} Recorded
-                              </p>
-                            </div>
-                          );
-                        })}
-                    </div>
+          <section id="results-section" className="mt-12 bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm">
+            <h2 className="text-3xl font-black mb-8">Official Results</h2>
+            <div className="space-y-12">
+              {candidateGroups.map((group) => (
+                <div key={group.position} className="space-y-4">
+                  <h3 className="text-xl font-black border-l-4 border-emerald-500 pl-4">{group.position}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {group.candidates.sort((a, b) => b.vote_count - a.vote_count).map((c) => {
+                      const max = Math.max(...group.candidates.map(x => x.vote_count));
+                      const pct = max > 0 ? (c.vote_count / max) * 100 : 0;
+                      return (
+                        <div key={c.id} className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                          <div className="flex justify-between font-bold mb-2"><span>{c.name}</span><span className="text-emerald-600">{c.vote_count}</span></div>
+                          <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           </section>
         )}
 
-        <footer className="mt-20 border-t border-slate-200 pt-10 pb-16 text-center">
-          <div className="mx-auto max-w-xs">
-            <div className="mb-4 flex justify-center gap-4 opacity-30">
-              <div className="h-px w-10 bg-slate-900" />
-              <Shield className="h-4 w-4 text-slate-900" />
-              <div className="h-px w-10 bg-slate-900" />
-            </div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-              Official Election Platform
-            </p>
-            <p className="mt-3 text-sm font-medium text-slate-600">
-              Designed & Developed by <span className="text-slate-900 font-bold">Yeshwanth B</span>
-            </p>
-            <p className="mt-1 text-[10px] text-slate-400">
-              © 2026 CMR National PU College. All rights reserved.
-            </p>
-          </div>
+        <footer className="mt-20 border-t border-slate-200 py-10 text-center">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Official Election Platform</p>
+          <p className="mt-3 text-sm font-medium text-slate-600">Designed & Developed by <span className="text-slate-900 font-bold">Yeshwanth B</span></p>
         </footer>
       </main>
 
-      {confirmCandidate && (
-        <VoteConfirmModal
-          candidate={confirmCandidate}
-          onConfirm={handleVoteConfirm}
-          onCancel={() => !votingLoading && setConfirmCandidate(null)}
-          loading={votingLoading}
-        />
-      )}
-
-      {successCandidate && (
-        <VoteSuccessModal candidate={successCandidate} onDismiss={() => setSuccessCandidate(null)} />
-      )}
-
-      {errorModal && (
-        <ErrorModal
-          title={errorModal.title}
-          message={errorModal.message}
-          onDismiss={() => setErrorModal(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function ElectionClosedScreen({ 
-  resultsVisibility, 
-  onViewResults, 
-  onBackToLogin 
-}: { 
-  resultsVisibility: 'visible' | 'hidden';
-  onViewResults: () => void;
-  onBackToLogin: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md p-6 text-center">
-      <div className="max-w-md w-full animate-in fade-in zoom-in duration-500">
-        <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[2rem] mx-auto shadow-2xl bg-rose-500">
-          <Lock className="h-12 w-12 text-white" />
-        </div>
-        <h2 className="text-4xl font-black text-white tracking-tight mb-4 uppercase">
-          Election Closed
-        </h2>
-        <p className="text-xl text-slate-400 font-medium mb-12">
-          The election has been closed. Voting is no longer permitted.
-        </p>
-        
-        <div className="flex flex-col gap-4">
-          {resultsVisibility === 'visible' && (
-            <button
-              onClick={onViewResults}
-              className="px-8 py-4 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg"
-            >
-              View Live Results
-            </button>
-          )}
-          <button
-            onClick={onBackToLogin}
-            className="px-8 py-4 rounded-2xl border-2 border-white/20 text-white font-black uppercase tracking-widest hover:bg-white/10 transition-all"
-          >
-            Back to Login
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ElectionPausedScreen({ 
-  onBackToLogin 
-}: { 
-  onBackToLogin: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md p-6 text-center">
-      <div className="max-w-md w-full animate-in fade-in zoom-in duration-500">
-        <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[2rem] mx-auto shadow-2xl bg-amber-500">
-          <Clock className="h-12 w-12 text-white animate-pulse" />
-        </div>
-        <h2 className="text-4xl font-black text-white tracking-tight mb-4 uppercase">
-          Election Temporarily Paused
-        </h2>
-        <p className="text-xl text-slate-400 font-medium mb-12">
-          The election is currently paused by the administrator. Please wait for it to resume.
-        </p>
-        
-        <button
-          onClick={onBackToLogin}
-          className="px-8 py-4 rounded-2xl border-2 border-white/20 text-white font-black uppercase tracking-widest hover:bg-white/10 transition-all"
-        >
-          Back to Login
-        </button>
-      </div>
+      {confirmCandidate && <VoteConfirmModal candidate={confirmCandidate} onConfirm={handleVoteConfirm} onCancel={() => !votingLoading && setConfirmCandidate(null)} loading={votingLoading} />}
+      {successCandidate && <VoteSuccessModal candidate={successCandidate} onDismiss={() => setSuccessCandidate(null)} />}
+      {errorModal && <ErrorModal title={errorModal.title} message={errorModal.message} onDismiss={() => setErrorModal(null)} />}
     </div>
   );
 }
