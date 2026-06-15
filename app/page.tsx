@@ -197,10 +197,12 @@ export default function HomePage() {
   const [hasStartedVoting, setHasStartedVoting] = useState(false);
   const [isReviewScreenOpen, setIsReviewScreenOpen] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [showResultsAnyway, setShowResultsAnyway] = useState(false);
   const [isSelectingHouse, setIsSelectingHouse] = useState(false);
   const [houseToConfirm, setHouseToConfirm] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
+  const [electionStatus, setElectionStatus] = useState<'open' | 'closed' | 'paused' | 'scheduled' | null>(null);
   const [resultsVisibility, setResultsVisibility] = useState<'visible' | 'hidden'>('hidden');
   const [statusFetched, setStatusFetched] = useState(false);
 
@@ -220,33 +222,44 @@ export default function HomePage() {
     }
   }, [user, isGuest, loading, router]);
 
-  useEffect(() => {
-    const fetchElectionSettings = async () => {
-      try {
-        const { data } = await supabase
-          .from('election_settings')
-          .select('key, value');
+  const fetchElectionSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('election_settings')
+        .select('key, value');
+      
+      if (data) {
+        const statusItem = data.find(i => i.key === 'election_status');
+        const visibilityItem = data.find(i => i.key === 'results_visibility');
         
-        if (data) {
-          const visibilityItem = data.find(i => i.key === 'results_visibility');
-          if (visibilityItem) {
-            setResultsVisibility(normalizeStatus(visibilityItem.value) as any);
-          }
+        if (statusItem) {
+          const normalized = normalizeStatus(statusItem.value);
+          console.log('[Student] Status Fetched:', normalized);
+          setElectionStatus(normalized as any);
         }
-        setStatusFetched(true);
-      } catch (err) {
-        console.error("Error fetching settings:", err);
+        
+        if (visibilityItem) {
+          setResultsVisibility(normalizeStatus(visibilityItem.value) as any);
+        }
       }
-    };
+      setStatusFetched(true);
+    } catch (err) {
+      console.error("[Student] Fetch Failed:", err);
+    }
+  };
 
+  useEffect(() => {
     void fetchElectionSettings();
 
     const channel = supabase
-      .channel('public_election_settings')
+      .channel('student_election_settings')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'election_settings' },
-        () => fetchElectionSettings()
+        (payload) => {
+          console.log('[Student] Realtime Update:', payload);
+          void fetchElectionSettings();
+        }
       )
       .subscribe();
 
@@ -540,6 +553,20 @@ export default function HomePage() {
   const handleVoteConfirm = async () => {
     if (!confirmCandidate) return;
 
+    // SECURITY: Fresh check of election status before vote
+    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
+    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
+
+    if (currentStatus !== 'open' && !isAdmin) {
+      setConfirmCandidate(null);
+      setErrorModal({
+        title: 'Election Not Open',
+        message: `The election is currently ${currentStatus?.toUpperCase()}. You cannot cast a vote at this time.`,
+      });
+      setElectionStatus(currentStatus as any);
+      return;
+    }
+
     if (isGuest) {
       setConfirmCandidate(null);
       setErrorModal({
@@ -612,6 +639,19 @@ export default function HomePage() {
   const handleFinalBallotSubmit = async () => {
     if (!user || isGuest) return;
 
+    // SECURITY: Fresh check of election status before final submission
+    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
+    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
+
+    if (currentStatus !== 'open' && !isAdmin) {
+      setErrorModal({
+        title: 'Election Not Open',
+        message: `The election is currently ${currentStatus?.toUpperCase()}. You cannot submit your final ballot at this time.`,
+      });
+      setElectionStatus(currentStatus as any);
+      return;
+    }
+
     setVotingLoading(true);
     try {
       const { error: updateError } = await supabase
@@ -640,6 +680,24 @@ export default function HomePage() {
           <p className="text-base font-medium text-slate-600">Loading your ballot...</p>
         </div>
       </div>
+    );
+  }
+
+  if (electionStatus !== 'open' && !isAdmin && !showResultsAnyway) {
+    if (electionStatus === 'paused') {
+      return (
+        <ElectionPausedScreen 
+          onBackToLogin={() => router.replace('/login')}
+        />
+      );
+    }
+
+    return (
+      <ElectionClosedScreen 
+        resultsVisibility={resultsVisibility} 
+        onViewResults={() => setShowResultsAnyway(true)} 
+        onBackToLogin={() => router.replace('/login')}
+      />
     );
   }
 
@@ -764,7 +822,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#eef2f7] text-slate-950 relative">
-      {resultsVisibility === 'visible' && (
+      {resultsVisibility === 'visible' && (electionStatus === 'open' || showResultsAnyway) && (
         <div className="bg-emerald-600 text-white py-3 px-6 text-center font-bold sticky top-0 z-[45] shadow-lg animate-in slide-in-from-top duration-500">
           <div className="flex items-center justify-center gap-3">
             <Sparkles className="h-5 w-5 animate-pulse" />
@@ -999,6 +1057,78 @@ export default function HomePage() {
       {confirmCandidate && <VoteConfirmModal candidate={confirmCandidate} onConfirm={handleVoteConfirm} onCancel={() => !votingLoading && setConfirmCandidate(null)} loading={votingLoading} />}
       {successCandidate && <VoteSuccessModal candidate={successCandidate} onDismiss={() => setSuccessCandidate(null)} />}
       {errorModal && <ErrorModal title={errorModal.title} message={errorModal.message} onDismiss={() => setErrorModal(null)} />}
+    </div>
+  );
+}
+
+function ElectionClosedScreen({ 
+  resultsVisibility, 
+  onViewResults, 
+  onBackToLogin 
+}: { 
+  resultsVisibility: 'visible' | 'hidden';
+  onViewResults: () => void;
+  onBackToLogin: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md p-6 text-center">
+      <div className="max-w-md w-full animate-in fade-in zoom-in duration-500">
+        <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[2rem] mx-auto shadow-2xl bg-rose-500">
+          <Lock className="h-12 w-12 text-white" />
+        </div>
+        <h2 className="text-4xl font-black text-white tracking-tight mb-4 uppercase">
+          Election Closed
+        </h2>
+        <p className="text-xl text-slate-400 font-medium mb-12">
+          The election has been closed. Voting is no longer permitted.
+        </p>
+        
+        <div className="flex flex-col gap-4">
+          {resultsVisibility === 'visible' && (
+            <button
+              onClick={onViewResults}
+              className="px-8 py-4 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg"
+            >
+              View Live Results
+            </button>
+          )}
+          <button
+            onClick={onBackToLogin}
+            className="px-8 py-4 rounded-2xl border-2 border-white/20 text-white font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ElectionPausedScreen({ 
+  onBackToLogin 
+}: { 
+  onBackToLogin: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md p-6 text-center">
+      <div className="max-w-md w-full animate-in fade-in zoom-in duration-500">
+        <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[2rem] mx-auto shadow-2xl bg-amber-500">
+          <Clock className="h-12 w-12 text-white animate-pulse" />
+        </div>
+        <h2 className="text-4xl font-black text-white tracking-tight mb-4 uppercase">
+          Election Temporarily Paused
+        </h2>
+        <p className="text-xl text-slate-400 font-medium mb-12">
+          The election is currently paused by the administrator. Please wait for it to resume.
+        </p>
+        
+        <button
+          onClick={onBackToLogin}
+          className="px-8 py-4 rounded-2xl border-2 border-white/20 text-white font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+        >
+          Back to Login
+        </button>
+      </div>
     </div>
   );
 }

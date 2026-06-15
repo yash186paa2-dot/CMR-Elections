@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { supabase } from '@/lib/supabase';
 import type { RollLoginFieldErrors } from '@/lib/student-auth';
-import { Mail, Lock, AlertCircle, Hash, Calendar } from 'lucide-react';
+import { Mail, Lock, AlertCircle, Hash, Calendar, Clock } from 'lucide-react';
+import { normalizeStatus } from '@/lib/utils';
 
 export default function LoginPage() {
   const { user, loading, isGuest, signInWithPassword, signInWithRoll, signInWithGoogle } =
@@ -22,9 +23,55 @@ export default function LoginPage() {
   const [dob, setDob] = useState('');
   const [fieldErrors, setFieldErrors] = useState<RollLoginFieldErrors>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [electionStatus, setElectionStatus] = useState<'open' | 'closed' | 'paused' | 'scheduled'>('scheduled');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null
   );
+
+  const fetchElectionStatus = async () => {
+    try {
+      const { data } = await supabase
+        .from('election_settings')
+        .select('key, value')
+        .eq('key', 'election_status')
+        .single();
+      
+      if (data) {
+        const val = normalizeStatus(data.value);
+        console.log("[Student] Status Fetched:", val);
+        setElectionStatus(val as any);
+      }
+    } catch (err) {
+      console.error("[Student] Status Fetch Failed:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchElectionStatus();
+    
+    // Realtime sync
+    const channel = supabase
+      .channel('login_election_settings')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'election_settings',
+          filter: 'key=eq.election_status'
+        },
+        (payload) => {
+          console.log("[Student] Realtime Update:", payload);
+          const val = normalizeStatus(payload.new.value);
+          setElectionStatus(val as any);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const maxDob = new Date().toISOString().split('T')[0];
 
@@ -111,6 +158,37 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0f1e] flex flex-col items-center justify-start pt-12 md:pt-16 px-4 relative">
+      {/* Election Status Overlay for Students */}
+      {electionStatus !== 'open' && loginMode !== 'admin' && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md p-6 text-center">
+          <div className="max-w-md w-full animate-in fade-in zoom-in duration-500">
+            <div className={`mb-8 flex h-24 w-24 items-center justify-center rounded-[2.5rem] mx-auto shadow-2xl ${
+              electionStatus === 'paused' ? 'bg-amber-500' : 'bg-rose-500'
+            }`}>
+              {electionStatus === 'paused' ? (
+                <Clock className="h-12 w-12 text-white animate-pulse" />
+              ) : (
+                <Lock className="h-12 w-12 text-white" />
+              )}
+            </div>
+            <h2 className="text-4xl font-black text-white tracking-tight mb-4 uppercase">
+              Election {electionStatus}
+            </h2>
+            <p className="text-xl text-slate-400 font-medium mb-12 leading-relaxed">
+              {electionStatus === 'paused' 
+                ? 'The election is currently paused by the administrator. Please wait for it to resume.' 
+                : 'The election has been closed. Voting is no longer permitted.'}
+            </p>
+            <button
+              onClick={() => setLoginMode('admin')}
+              className="px-8 py-4 rounded-2xl border-2 border-white/20 text-white font-black uppercase tracking-widest hover:bg-white/10 transition-all text-sm"
+            >
+              Admin Login
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Background with minimal institutional lighting */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[500px] bg-blue-900/10 rounded-full blur-[120px]" />

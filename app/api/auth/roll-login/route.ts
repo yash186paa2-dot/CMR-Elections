@@ -5,6 +5,7 @@ import {
   rollStudentAuthEmail,
   validateRollLoginInput,
 } from '@/lib/student-auth';
+import { normalizeStatus } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 
@@ -116,6 +117,22 @@ export async function POST(request: Request) {
     }
 
     const admin = getSupabaseAdmin();
+
+    // SECURITY: Check election status before allowing login
+    const { data: statusData } = await admin
+      .from('election_settings')
+      .select('value')
+      .eq('key', 'election_status')
+      .single();
+    
+    const electionStatus = statusData ? normalizeStatus(statusData.value) : 'closed';
+
+    if (electionStatus !== 'open') {
+      return NextResponse.json(
+        { error: `The election is currently ${electionStatus.toUpperCase()}. Login is disabled.` },
+        { status: 403 }
+      );
+    }
 
     const normalizedRoll = normalizeRollNo(validation.roll_no);
 
