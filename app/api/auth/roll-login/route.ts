@@ -116,6 +116,26 @@ export async function POST(request: Request) {
     }
 
     const admin = getSupabaseAdmin();
+
+    // SECURITY: Check election status before allowing login
+    const { data: statusData } = await admin
+      .from('election_settings')
+      .select('value')
+      .eq('key', 'election_status')
+      .single();
+    
+    const electionStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : 'closed';
+
+    if (electionStatus !== 'open') {
+      // Check if this user is an admin - if so, allow login
+      // However, we don't know if they are an admin yet until we lookup the student and link to auth.
+      // But for roll-login, these are ALWAYS students. Admins use password login.
+      return NextResponse.json(
+        { error: `The election is currently ${electionStatus.toUpperCase()}. Login is disabled.` },
+        { status: 403 }
+      );
+    }
+
     const normalizedRoll = normalizeRollNo(validation.roll_no);
 
     const { data: student, error: studentError } = await admin

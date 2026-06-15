@@ -36,6 +36,7 @@ import { VoteSuccessModal } from '@/components/vote-success-modal';
 import { fetchCandidates } from '@/lib/candidates';
 import { supabase, type Candidate, type Vote, type House } from '@/lib/supabase';
 import { fetchHouses, getHouseTheme, isCandidateHouse, hexToRgb } from '@/lib/houses';
+import { normalizeStatus } from '@/lib/utils';
 
 type SupabaseErrorLike = {
   code?: string;
@@ -204,10 +205,14 @@ export default function HomePage() {
   const [hasStartedVoting, setHasStartedVoting] = useState(false);
   const [isReviewScreenOpen, setIsReviewScreenOpen] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [showResultsAnyway, setShowResultsAnyway] = useState(false);
   const [isSelectingHouse, setIsSelectingHouse] = useState(false);
   const [houseToConfirm, setHouseToConfirm] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [timerStatus, setTimerStatus] = useState<'stopped' | 'running' | 'paused'>('stopped');
+  const [electionStatus, setElectionStatus] = useState<'open' | 'closed' | 'paused' | 'scheduled' | null>(null);
+  const [resultsVisibility, setResultsVisibility] = useState<'visible' | 'hidden'>('hidden');
+  const [statusFetched, setStatusFetched] = useState(false);
 
   const TIMER_DEFAULTS = useMemo(
     () => ({
@@ -225,7 +230,104 @@ export default function HomePage() {
     }
   }, [user, isGuest, loading, router]);
 
+  // Realtime settings subscription
+  useEffect(() => {
+    const fetchElectionStatus = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('election_settings')
+          .select('key, value');
+        
+        if (data) {
+          const statusItem = data.find(i => i.key === 'election_status');
+          const visibilityItem = data.find(i => i.key === 'results_visibility');
+          if (statusItem) {
+            const normalized = normalizeStatus(statusItem.value);
+            console.log("[Student] Raw status received:", statusItem.value);
+            console.log("[Student] Normalized status received:", normalized);
+            setElectionStatus(normalized as any);
+          }
+          if (visibilityItem) {
+            const normalized = normalizeStatus(visibilityItem.value);
+            setResultsVisibility(normalized as any);
+          }
+        }
+        setStatusFetched(true);
+      } catch (err) {
+        console.error("Error polling election status:", err);
+      }
+    };
+
+    void fetchElectionStatus();
+
+    const channel = supabase
+      .channel('public_election_settings')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'election_settings',
+        },
+        (payload) => {
+          console.log("[Student] Realtime status update received:", payload);
+          const { key, value } = payload.new;
+          const normalized = normalizeStatus(value);
+
+          if (key === 'election_status') {
+            console.log("[Student] Realtime raw status:", value);
+            console.log("[Student] Realtime normalized status:", normalized);
+            setElectionStatus(normalized as any);
+          } else if (key === 'results_visibility') {
+            setResultsVisibility(normalized as any);
+          }
+        }
+      )
+      .subscribe();
+
+    // Fallback polling every 5 seconds for critical status
+    const interval = setInterval(fetchElectionStatus, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Candidates realtime subscription for live results
+  useEffect(() => {
+    if (resultsVisibility !== 'visible') return;
+
+    const channel = supabase
+      .channel('public_candidates_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'candidates',
+        },
+        (payload) => {
+          console.log('[Student] Candidate updated:', payload.new);
+          setCandidates((current) =>
+            current.map((c) => (c.id === payload.new.id ? { ...c, ...payload.new } : c))
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [resultsVisibility]);
+
   // Timer Logic
+  useEffect(() => {
+    if (electionStatus) {
+      console.log("[Student] Normalized current election status:", electionStatus);
+    }
+  }, [electionStatus]);
+
   useEffect(() => {
     const fetchTimer = async () => {
       const settingKeys = Object.keys(TIMER_DEFAULTS);
@@ -304,7 +406,7 @@ export default function HomePage() {
     setDataLoading(true);
 
     try {
-      const [candidatesRes, housesRes, votesRes, studentRes] = await Promise.all([
+      const [candidatesRes, housesRes, votesRes, studentRes, settingsRes] = await Promise.all([
         fetchCandidates(),
         fetchHouses(),
         user
@@ -320,6 +422,7 @@ export default function HomePage() {
               .select('*')
               .eq('auth_user_id', user.id)
           : Promise.resolve({ data: null, error: null }),
+        supabase.from('election_settings').select('key, value')
       ]);
       const studentRow = Array.isArray(studentRes?.data) ? studentRes.data[0] ?? null : studentRes?.data ?? null;
 
@@ -373,7 +476,7 @@ export default function HomePage() {
         
         // Default for guests if no house selected
         if (isGuest && !currentStudentHouse) {
-          currentStudentHouse = 'Agni House';
+          currentStudentHouse = housesRes.data?.[0]?.name || 'Agni House';
         }
       }
 
@@ -458,6 +561,19 @@ export default function HomePage() {
   );
 
   const handleHouseSelect = async (house: string) => {
+    // SECURITY: Fresh check of election status before house selection
+    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
+    const currentStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : electionStatus;
+
+    if (currentStatus !== 'open' && !isAdmin) {
+      setErrorModal({
+        title: 'Election Not Open',
+        message: 'The election is not currently open for house selection.',
+      });
+      setElectionStatus(currentStatus as any);
+      return;
+    }
+
     if (user) {
       try {
         setVotingLoading(true);
@@ -517,6 +633,20 @@ export default function HomePage() {
 
   const handleVoteConfirm = async () => {
     if (!confirmCandidate) return;
+
+    // SECURITY: Fresh check of election status before vote
+    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
+    const currentStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : electionStatus;
+
+    if (currentStatus !== 'open' && !isAdmin) {
+      setConfirmCandidate(null);
+      setErrorModal({
+        title: 'Election Not Open',
+        message: `The election is currently ${currentStatus}. You cannot cast a vote at this time.`,
+      });
+      setElectionStatus(currentStatus as any);
+      return;
+    }
 
     if (isGuest) {
       setConfirmCandidate(null);
@@ -609,6 +739,19 @@ export default function HomePage() {
       return;
     }
 
+    // SECURITY: Fresh check of election status before final submission
+    const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
+    const currentStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : electionStatus;
+
+    if (currentStatus !== 'open' && !isAdmin) {
+      setErrorModal({
+        title: 'Election Not Open',
+        message: `The election is currently ${currentStatus}. You cannot submit your final ballot at this time.`,
+      });
+      setElectionStatus(currentStatus as any);
+      return;
+    }
+
     setVotingLoading(true);
     try {
       console.log('FINAL SUBMIT START');
@@ -668,7 +811,7 @@ export default function HomePage() {
     }
   };
 
-  if ((loading && !isGuest) || (!user && !isGuest && !loading)) {
+  if (loading || dataLoading || !statusFetched) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
         <div className="flex flex-col items-center gap-4 text-center">
@@ -676,6 +819,26 @@ export default function HomePage() {
           <p className="text-base font-medium text-slate-600">Loading your ballot...</p>
         </div>
       </div>
+    );
+  }
+
+  if (electionStatus !== 'open' && !isAdmin && !showResultsAnyway) {
+    console.log("[Student] Current election status (Blocking UI):", electionStatus);
+    
+    if (electionStatus === 'paused') {
+      return (
+        <ElectionPausedScreen 
+          onBackToLogin={() => router.replace('/login')}
+        />
+      );
+    }
+
+    return (
+      <ElectionClosedScreen 
+        resultsVisibility={resultsVisibility} 
+        onViewResults={() => setShowResultsAnyway(true)} 
+        onBackToLogin={() => router.replace('/login')}
+      />
     );
   }
 
@@ -872,7 +1035,26 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#eef2f7] text-slate-950">
+    <div className="min-h-screen bg-[#eef2f7] text-slate-950 relative">
+      {/* Results Published Banner */}
+      {resultsVisibility === 'visible' && (electionStatus === 'open' || showResultsAnyway) && (
+        <div className="bg-emerald-600 text-white py-3 px-6 text-center font-bold sticky top-0 z-[45] shadow-lg animate-in slide-in-from-top duration-500">
+          <div className="flex items-center justify-center gap-3">
+            <Sparkles className="h-5 w-5 animate-pulse" />
+            <span>Official Election Results are now LIVE!</span>
+            <button 
+              onClick={() => {
+                const el = document.getElementById('results-section');
+                el?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="ml-4 bg-white text-emerald-600 px-4 py-1 rounded-full text-sm hover:bg-emerald-50 transition-colors"
+            >
+              View Results
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
@@ -1073,7 +1255,9 @@ export default function HomePage() {
           </div>
         ) : (
           <>
-            {!hasStartedVoting && !isReviewScreenOpen ? (
+            {(electionStatus === 'open' || isAdmin) ? (
+              <>
+                {!hasStartedVoting && !isReviewScreenOpen ? (
               <section className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
                 <div className="glass-panel rounded-[2rem] border border-white/70 p-6 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.35)] sm:p-8">
                   <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -1561,8 +1745,6 @@ export default function HomePage() {
                 </aside>
               </section>
             )}
-          </>
-        )}
 
         {hasStartedVoting && totalPositions > 0 && (
           <div className="fixed inset-x-0 bottom-0 z-40 bg-white/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-20px_40px_-15px_rgba(15,23,42,0.1)] backdrop-blur-md xl:hidden">
@@ -1653,6 +1835,80 @@ export default function HomePage() {
             </div>
           </div>
         )}
+      </>
+    ) : (
+              <div className="mt-8 text-center py-12 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50">
+                  <Lock className="h-6 w-6 text-amber-600" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight uppercase">Voting Suspended</h2>
+                <p className="mt-2 text-slate-500 font-medium">The ballot is currently closed or paused. Live results are displayed below if published.</p>
+                <button 
+                  onClick={() => {
+                    const el = document.getElementById('results-section');
+                    el?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="mt-6 flex items-center justify-center gap-2 mx-auto px-6 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-all"
+                >
+                  <BarChart2 className="w-4 h-4" />
+                  Scroll to Results
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {resultsVisibility === 'visible' && (
+          <section id="results-section" className="mt-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="glass-panel rounded-[2rem] border border-emerald-200 bg-emerald-50/30 p-8 shadow-xl">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-3xl font-black text-slate-900 tracking-tight">Official Election Results</h2>
+                  <p className="text-slate-500 font-medium mt-1">Real-time tabulated votes across all positions</p>
+                </div>
+                <div className="h-12 w-12 rounded-2xl bg-emerald-100 flex items-center justify-center">
+                  <BarChart2 className="h-6 w-6 text-emerald-600" />
+                </div>
+              </div>
+
+              <div className="space-y-12">
+                {candidateGroups.map((group) => (
+                  <div key={group.position} className="space-y-4">
+                    <h3 className="text-xl font-black text-slate-800 border-l-4 border-emerald-500 pl-4">
+                      {group.position}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {group.candidates
+                        .sort((a, b) => b.vote_count - a.vote_count)
+                        .map((candidate) => {
+                          const maxVotes = Math.max(...group.candidates.map(c => c.vote_count));
+                          const percentage = maxVotes > 0 ? (candidate.vote_count / maxVotes) * 100 : 0;
+                          
+                          return (
+                            <div key={candidate.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                              <div className="flex items-center justify-between mb-3">
+                                <p className="font-bold text-slate-900 truncate pr-2">{candidate.name}</p>
+                                <span className="text-lg font-black text-emerald-600">{candidate.vote_count}</span>
+                              </div>
+                              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-emerald-500 rounded-full transition-all duration-1000"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                                {candidate.vote_count === 1 ? 'Vote' : 'Votes'} Recorded
+                              </p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         <footer className="mt-20 border-t border-slate-200 pt-10 pb-16 text-center">
           <div className="mx-auto max-w-xs">
@@ -1694,6 +1950,78 @@ export default function HomePage() {
           onDismiss={() => setErrorModal(null)}
         />
       )}
+    </div>
+  );
+}
+
+function ElectionClosedScreen({ 
+  resultsVisibility, 
+  onViewResults, 
+  onBackToLogin 
+}: { 
+  resultsVisibility: 'visible' | 'hidden';
+  onViewResults: () => void;
+  onBackToLogin: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md p-6 text-center">
+      <div className="max-w-md w-full animate-in fade-in zoom-in duration-500">
+        <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[2rem] mx-auto shadow-2xl bg-rose-500">
+          <Lock className="h-12 w-12 text-white" />
+        </div>
+        <h2 className="text-4xl font-black text-white tracking-tight mb-4 uppercase">
+          Election Closed
+        </h2>
+        <p className="text-xl text-slate-400 font-medium mb-12">
+          The election has been closed. Voting is no longer permitted.
+        </p>
+        
+        <div className="flex flex-col gap-4">
+          {resultsVisibility === 'visible' && (
+            <button
+              onClick={onViewResults}
+              className="px-8 py-4 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg"
+            >
+              View Live Results
+            </button>
+          )}
+          <button
+            onClick={onBackToLogin}
+            className="px-8 py-4 rounded-2xl border-2 border-white/20 text-white font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ElectionPausedScreen({ 
+  onBackToLogin 
+}: { 
+  onBackToLogin: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md p-6 text-center">
+      <div className="max-w-md w-full animate-in fade-in zoom-in duration-500">
+        <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[2rem] mx-auto shadow-2xl bg-amber-500">
+          <Clock className="h-12 w-12 text-white animate-pulse" />
+        </div>
+        <h2 className="text-4xl font-black text-white tracking-tight mb-4 uppercase">
+          Election Temporarily Paused
+        </h2>
+        <p className="text-xl text-slate-400 font-medium mb-12">
+          The election is currently paused by the administrator. Please wait for it to resume.
+        </p>
+        
+        <button
+          onClick={onBackToLogin}
+          className="px-8 py-4 rounded-2xl border-2 border-white/20 text-white font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+        >
+          Back to Login
+        </button>
+      </div>
     </div>
   );
 }

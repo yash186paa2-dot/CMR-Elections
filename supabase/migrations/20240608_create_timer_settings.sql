@@ -13,7 +13,7 @@ INSERT INTO election_settings (key, value) VALUES
   ('timer_duration', '60'::jsonb),
   ('timer_status', 'stopped'::jsonb),
   ('timer_start_time', NULL::jsonb),
-  ('election_status', 'active'::jsonb),
+  ('election_status', 'closed'::jsonb),
   ('auto_reset_seconds', '10'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 

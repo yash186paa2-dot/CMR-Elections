@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { Play, Pause, Square, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { normalizeStatus } from '@/lib/utils';
+
 type ElectionStatus = 'open' | 'closed' | 'paused' | 'scheduled';
 type ResultsVisibility = 'visible' | 'hidden';
 
@@ -17,6 +19,37 @@ export function ElectionControl() {
 
   useEffect(() => {
     fetchSettings();
+
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel('election_settings_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'election_settings',
+        },
+        (payload) => {
+          console.log('[Admin] Realtime update received:', payload.new);
+          const { key, value } = payload.new;
+          
+          if (key === 'election_status') {
+            const normalized = normalizeStatus(value);
+            console.log('Raw status (realtime):', value);
+            console.log('Normalized status (realtime):', normalized);
+            setStatus(normalized as ElectionStatus);
+          } else if (key === 'results_visibility') {
+            const normalized = normalizeStatus(value);
+            setVisibility(normalized as ResultsVisibility);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchSettings = async () => {
@@ -33,13 +66,15 @@ export function ElectionControl() {
         const visibilityItem = data.find(item => item.key === 'results_visibility');
         
         if (statusItem) {
-          const val = typeof statusItem.value === 'string' ? statusItem.value.replace(/"/g, '') : statusItem.value;
-          setStatus(val as ElectionStatus);
+          const normalized = normalizeStatus(statusItem.value);
+          console.log('Raw status:', statusItem.value);
+          console.log('Normalized status:', normalized);
+          setStatus(normalized as ElectionStatus);
         }
         
         if (visibilityItem) {
-          const val = typeof visibilityItem.value === 'string' ? visibilityItem.value.replace(/"/g, '') : visibilityItem.value;
-          setVisibility(val as ResultsVisibility);
+          const normalized = normalizeStatus(visibilityItem.value);
+          setVisibility(normalized as ResultsVisibility);
         }
       }
     } catch (err) {
@@ -110,7 +145,7 @@ export function ElectionControl() {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
       <div className="bg-slate-50 border-b border-slate-200 px-8 py-4 flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Election Controls</h3>
+        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Election Control Center</h3>
         <div className="flex gap-2">
           <Badge color={status === 'open' ? 'emerald' : status === 'paused' ? 'amber' : 'slate'}>
             Status: {status}
@@ -239,4 +274,3 @@ function ControlButton({
     </button>
   );
 }
-

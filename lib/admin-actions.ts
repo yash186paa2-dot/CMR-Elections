@@ -19,6 +19,7 @@ export async function updateElectionStatus(status: ElectionStatus, adminId: stri
     .eq('key', 'election_status');
 
   if (!error) {
+    console.log("Election status updated:", status);
     await logAdminAction(adminId, 'UPDATE_ELECTION_STATUS', { status });
   }
   return { error };
