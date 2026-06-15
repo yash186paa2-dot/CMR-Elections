@@ -13,12 +13,16 @@ export async function logAdminAction(adminId: string, action: string, details: a
 }
 
 export async function updateElectionStatus(status: ElectionStatus, adminId: string) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('election_settings')
-    .update({ value: JSON.stringify(status) })
-    .eq('key', 'election_status');
+    .update({ value: status })
+    .eq('key', 'election_status')
+    .select();
 
-  if (!error) {
+  if (error) {
+    console.error('UPDATE ERROR (Status):', error);
+  } else {
+    console.log('UPDATE DATA (Status):', data);
     console.log("Election status updated:", status);
     await logAdminAction(adminId, 'UPDATE_ELECTION_STATUS', { status });
   }
@@ -26,12 +30,16 @@ export async function updateElectionStatus(status: ElectionStatus, adminId: stri
 }
 
 export async function updateResultsVisibility(visibility: ResultsVisibility, adminId: string) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('election_settings')
-    .update({ value: JSON.stringify(visibility) })
-    .eq('key', 'results_visibility');
+    .update({ value: visibility })
+    .eq('key', 'results_visibility')
+    .select();
 
-  if (!error) {
+  if (error) {
+    console.error('UPDATE ERROR (Visibility):', error);
+  } else {
+    console.log('UPDATE DATA (Visibility):', data);
     await logAdminAction(adminId, 'UPDATE_RESULTS_VISIBILITY', { visibility });
   }
   return { error };

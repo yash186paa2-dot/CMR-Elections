@@ -243,18 +243,16 @@ export default function HomePage() {
           const visibilityItem = data.find(i => i.key === 'results_visibility');
           if (statusItem) {
             const normalized = normalizeStatus(statusItem.value);
-            console.log("[Student] Raw status received:", statusItem.value);
-            console.log("[Student] Normalized status received:", normalized);
+            console.log("STUDENT FETCH STATUS:", normalized);
             setElectionStatus(normalized as any);
           }
           if (visibilityItem) {
-            const normalized = normalizeStatus(visibilityItem.value);
-            setResultsVisibility(normalized as any);
+            setResultsVisibility(normalizeStatus(visibilityItem.value) as any);
           }
         }
         setStatusFetched(true);
       } catch (err) {
-        console.error("Error polling election status:", err);
+        console.error("Error fetching status:", err);
       }
     };
 
@@ -264,33 +262,13 @@ export default function HomePage() {
       .channel('public_election_settings')
       .on(
         'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'election_settings',
-        },
-        (payload) => {
-          console.log("[Student] Realtime status update received:", payload);
-          const { key, value } = payload.new;
-          const normalized = normalizeStatus(value);
-
-          if (key === 'election_status') {
-            console.log("[Student] Realtime raw status:", value);
-            console.log("[Student] Realtime normalized status:", normalized);
-            setElectionStatus(normalized as any);
-          } else if (key === 'results_visibility') {
-            setResultsVisibility(normalized as any);
-          }
-        }
+        { event: 'UPDATE', schema: 'public', table: 'election_settings' },
+        () => fetchElectionStatus()
       )
       .subscribe();
 
-    // Fallback polling every 5 seconds for critical status
-    const interval = setInterval(fetchElectionStatus, 5000);
-
     return () => {
       supabase.removeChannel(channel);
-      clearInterval(interval);
     };
   }, []);
 
@@ -563,7 +541,7 @@ export default function HomePage() {
   const handleHouseSelect = async (house: string) => {
     // SECURITY: Fresh check of election status before house selection
     const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
-    const currentStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : electionStatus;
+    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
 
     if (currentStatus !== 'open' && !isAdmin) {
       setErrorModal({
@@ -636,7 +614,7 @@ export default function HomePage() {
 
     // SECURITY: Fresh check of election status before vote
     const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
-    const currentStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : electionStatus;
+    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
 
     if (currentStatus !== 'open' && !isAdmin) {
       setConfirmCandidate(null);
@@ -741,7 +719,7 @@ export default function HomePage() {
 
     // SECURITY: Fresh check of election status before final submission
     const { data: statusData } = await supabase.from('election_settings').select('value').eq('key', 'election_status').single();
-    const currentStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : electionStatus;
+    const currentStatus = statusData ? normalizeStatus(statusData.value) : electionStatus;
 
     if (currentStatus !== 'open' && !isAdmin) {
       setErrorModal({

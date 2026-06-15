@@ -5,6 +5,7 @@ import {
   rollStudentAuthEmail,
   validateRollLoginInput,
 } from '@/lib/student-auth';
+import { normalizeStatus } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
       .eq('key', 'election_status')
       .single();
     
-    const electionStatus = statusData ? (typeof statusData.value === 'string' ? statusData.value.replace(/"/g, '') : statusData.value) : 'closed';
+    const electionStatus = statusData ? normalizeStatus(statusData.value) : 'closed';
 
     if (electionStatus !== 'open') {
       // Check if this user is an admin - if so, allow login

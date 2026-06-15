@@ -7,6 +7,7 @@ import { useAuth } from '@/components/auth-provider';
 import { supabase } from '@/lib/supabase';
 import type { RollLoginFieldErrors } from '@/lib/student-auth';
 import { Mail, Lock, AlertCircle, Hash, Calendar, Clock } from 'lucide-react';
+import { normalizeStatus } from '@/lib/utils';
 
 export default function LoginPage() {
   const { user, loading, isGuest, signInWithPassword, signInWithRoll, signInWithGoogle } =
@@ -36,7 +37,7 @@ export default function LoginPage() {
         .single();
       
       if (data) {
-        const val = typeof data.value === 'string' ? data.value.replace(/"/g, '') : data.value;
+        const val = normalizeStatus(data.value);
         console.log("[Student] Current election status:", val);
         setElectionStatus(val as any);
       }
@@ -61,7 +62,7 @@ export default function LoginPage() {
         },
         (payload) => {
           console.log("[Student] Realtime status update received:", payload);
-          const val = typeof payload.new.value === 'string' ? payload.new.value.replace(/"/g, '') : payload.new.value;
+          const val = normalizeStatus(payload.new.value);
           console.log("[Student] Realtime status update received (val):", val);
           setElectionStatus(val as any);
         }

@@ -8,16 +8,22 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * Normalizes election status values by removing extra quotes, 
  * trimming whitespace, and converting to lowercase.
+ * Handles strings, objects with a status property, and null/undefined.
  */
 export function normalizeStatus(value: any): string {
-  if (value === null || value === undefined) return 'closed';
+  if (!value) return 'closed';
 
   let strValue = '';
-  if (typeof value === 'string') {
-    strValue = value;
+  
+  // Handle object format like { status: 'open' } or { value: 'open' }
+  if (typeof value === 'object' && value !== null) {
+    strValue = value.status || value.value || value.election_status || JSON.stringify(value);
   } else {
     strValue = String(value);
   }
 
-  return strValue.replace(/^"+|"+$/g, '').trim().toLowerCase();
+  return strValue
+    .replace(/^"+|"+$/g, '')
+    .trim()
+    .toLowerCase();
 }

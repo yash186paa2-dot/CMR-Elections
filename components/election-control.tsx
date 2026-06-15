@@ -11,50 +11,15 @@ type ElectionStatus = 'open' | 'closed' | 'paused' | 'scheduled';
 type ResultsVisibility = 'visible' | 'hidden';
 
 export function ElectionControl() {
-  const [status, setStatus] = useState<ElectionStatus>('closed');
-  const [visibility, setVisibility] = useState<ResultsVisibility>('hidden');
+  const [status, setStatus] = useState<string>('loading');
+  const [visibility, setVisibility] = useState<string>('hidden');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSettings();
-
-    // Subscribe to realtime changes
-    const channel = supabase
-      .channel('election_settings_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'election_settings',
-        },
-        (payload) => {
-          console.log('[Admin] Realtime update received:', payload.new);
-          const { key, value } = payload.new;
-          
-          if (key === 'election_status') {
-            const normalized = normalizeStatus(value);
-            console.log('Raw status (realtime):', value);
-            console.log('Normalized status (realtime):', normalized);
-            setStatus(normalized as ElectionStatus);
-          } else if (key === 'results_visibility') {
-            const normalized = normalizeStatus(value);
-            setVisibility(normalized as ResultsVisibility);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const fetchSettings = async () => {
+  // Single source of truth fetch
+  const fetchStatus = async () => {
     try {
-      setLoading(true);
       const { data, error: fetchError } = await supabase
         .from('election_settings')
         .select('key, value');
@@ -65,67 +30,83 @@ export function ElectionControl() {
         const statusItem = data.find(item => item.key === 'election_status');
         const visibilityItem = data.find(item => item.key === 'results_visibility');
         
-        if (statusItem) {
-          const normalized = normalizeStatus(statusItem.value);
-          console.log('Raw status:', statusItem.value);
-          console.log('Normalized status:', normalized);
-          setStatus(normalized as ElectionStatus);
-        }
+        const normalized = normalizeStatus(statusItem?.value);
+        console.log('ADMIN FETCH STATUS:', normalized);
+        console.log('Raw fetch data:', data);
+        
+        setStatus(normalized || 'unknown');
         
         if (visibilityItem) {
-          const normalized = normalizeStatus(visibilityItem.value);
-          setVisibility(normalized as ResultsVisibility);
+          setVisibility(normalizeStatus(visibilityItem.value));
         }
       }
     } catch (err) {
-      console.error('Error fetching election settings:', err);
-      setError('Failed to load election settings');
+      console.error('Error fetching status:', err);
+      setStatus('unknown');
     } finally {
       setLoading(false);
     }
   };
 
-  const updateStatus = async (newStatus: ElectionStatus) => {
+  useEffect(() => {
+    fetchStatus();
+
+    // Simple realtime sync
+    const channel = supabase
+      .channel('election_status_sync')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'election_settings' },
+        (payload) => {
+          console.log('REALTIME UPDATE:', payload);
+          fetchStatus();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const updateStatus = async (newStatus: string) => {
     try {
       setUpdating(true);
-      setError(null);
+      console.log('UPDATING STATUS:', newStatus);
       
-      const { error: updateError } = await supabase
+      const { data, error: updateError } = await supabase
         .from('election_settings')
         .update({ value: newStatus })
-        .eq('key', 'election_status');
+        .eq('key', 'election_status')
+        .select();
+
+      console.log('UPDATE DATA:', data);
+      console.log('UPDATE ERROR:', updateError);
 
       if (updateError) throw updateError;
       
-      setStatus(newStatus);
+      await fetchStatus();
       toast.success(`Election is now ${newStatus.toUpperCase()}`);
     } catch (err) {
-      console.error('Error updating election status:', err);
-      setError(`Failed to set election to ${newStatus}`);
-      toast.error('Failed to update election status');
+      console.error('Error updating status:', err);
+      toast.error('Failed to update status');
     } finally {
       setUpdating(false);
     }
   };
 
-  const updateVisibility = async (newVisibility: ResultsVisibility) => {
+  const updateVisibility = async (newVisibility: string) => {
     try {
       setUpdating(true);
-      setError(null);
-      
       const { error: updateError } = await supabase
         .from('election_settings')
         .update({ value: newVisibility })
         .eq('key', 'results_visibility');
 
       if (updateError) throw updateError;
-      
-      setVisibility(newVisibility);
-      toast.success(`Results are now ${newVisibility === 'visible' ? 'PUBLISHED' : 'HIDDEN'}`);
+      await fetchStatus();
     } catch (err) {
-      console.error('Error updating results visibility:', err);
-      setError(`Failed to set visibility to ${newVisibility}`);
-      toast.error('Failed to update visibility settings');
+      console.error('Error updating visibility:', err);
     } finally {
       setUpdating(false);
     }
@@ -136,7 +117,7 @@ export function ElectionControl() {
       <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex items-center gap-3">
           <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-          <p className="text-sm font-medium text-slate-600">Loading settings...</p>
+          <p className="text-sm font-medium text-slate-600">Syncing with database...</p>
         </div>
       </div>
     );
@@ -148,7 +129,7 @@ export function ElectionControl() {
         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Election Control Center</h3>
         <div className="flex gap-2">
           <Badge color={status === 'open' ? 'emerald' : status === 'paused' ? 'amber' : 'slate'}>
-            Status: {status}
+            Status: {status ? status.toUpperCase() : 'UNKNOWN'}
           </Badge>
           <Badge color={visibility === 'visible' ? 'blue' : 'slate'}>
             Results: {visibility === 'visible' ? 'Published' : 'Hidden'}
@@ -157,13 +138,6 @@ export function ElectionControl() {
       </div>
 
       <div className="p-8 space-y-8">
-        {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4">
-            <AlertCircle className="h-4 w-4 text-rose-600 mt-0.5" />
-            <p className="text-sm font-medium text-rose-700">{error}</p>
-          </div>
-        )}
-
         {/* Status Controls */}
         <section>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Election Status Management</p>
