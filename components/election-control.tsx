@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { updateElectionStatus, updateResultsVisibility } from '@/lib/admin-actions';
+import { useAuth } from '@/components/auth-provider';
 import { Play, Pause, Square, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -9,11 +11,19 @@ type ElectionStatus = 'open' | 'closed' | 'paused' | 'scheduled';
 type ResultsVisibility = 'visible' | 'hidden';
 
 export function ElectionControl() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<ElectionStatus>('closed');
   const [visibility, setVisibility] = useState<ResultsVisibility>('hidden');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const normalizeValue = (value: any): string => {
+    return String(value)
+      .replace(/^"+|"+$/g, '')
+      .trim()
+      .toLowerCase();
+  };
 
   useEffect(() => {
     fetchSettings();
@@ -33,12 +43,13 @@ export function ElectionControl() {
         const visibilityItem = data.find(item => item.key === 'results_visibility');
         
         if (statusItem) {
-          const val = typeof statusItem.value === 'string' ? statusItem.value.replace(/"/g, '') : statusItem.value;
+          const val = normalizeValue(statusItem.value);
+          console.log('[Admin] Fetched status:', val);
           setStatus(val as ElectionStatus);
         }
         
         if (visibilityItem) {
-          const val = typeof visibilityItem.value === 'string' ? visibilityItem.value.replace(/"/g, '') : visibilityItem.value;
+          const val = normalizeValue(visibilityItem.value);
           setVisibility(val as ResultsVisibility);
         }
       }
@@ -50,19 +61,22 @@ export function ElectionControl() {
     }
   };
 
-  const updateStatus = async (newStatus: ElectionStatus) => {
+  const handleUpdateStatus = async (newStatus: ElectionStatus) => {
+    if (!user) {
+      toast.error('You must be logged in as an admin');
+      return;
+    }
+
     try {
       setUpdating(true);
       setError(null);
       
-      const { error: updateError } = await supabase
-        .from('election_settings')
-        .update({ value: newStatus })
-        .eq('key', 'election_status');
+      const { data, error: updateError } = await updateElectionStatus(newStatus, user.id);
 
       if (updateError) throw updateError;
       
-      setStatus(newStatus);
+      // Immediately fetch the value from Supabase again to ensure UI is in sync with DB
+      await fetchSettings();
       toast.success(`Election is now ${newStatus.toUpperCase()}`);
     } catch (err) {
       console.error('Error updating election status:', err);
@@ -73,19 +87,22 @@ export function ElectionControl() {
     }
   };
 
-  const updateVisibility = async (newVisibility: ResultsVisibility) => {
+  const handleUpdateVisibility = async (newVisibility: ResultsVisibility) => {
+    if (!user) {
+      toast.error('You must be logged in as an admin');
+      return;
+    }
+
     try {
       setUpdating(true);
       setError(null);
       
-      const { error: updateError } = await supabase
-        .from('election_settings')
-        .update({ value: newVisibility })
-        .eq('key', 'results_visibility');
+      const { error: updateError } = await updateResultsVisibility(newVisibility, user.id);
 
       if (updateError) throw updateError;
       
-      setVisibility(newVisibility);
+      // Immediately fetch again
+      await fetchSettings();
       toast.success(`Results are now ${newVisibility === 'visible' ? 'PUBLISHED' : 'HIDDEN'}`);
     } catch (err) {
       console.error('Error updating results visibility:', err);
@@ -134,7 +151,7 @@ export function ElectionControl() {
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Election Status Management</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <ControlButton
-              onClick={() => updateStatus('open')}
+              onClick={() => handleUpdateStatus('open')}
               active={status === 'open'}
               disabled={updating || status === 'open'}
               color="emerald"
@@ -142,7 +159,7 @@ export function ElectionControl() {
               label="Open Election"
             />
             <ControlButton
-              onClick={() => updateStatus('paused')}
+              onClick={() => handleUpdateStatus('paused')}
               active={status === 'paused'}
               disabled={updating || status === 'paused'}
               color="amber"
@@ -150,7 +167,7 @@ export function ElectionControl() {
               label="Pause Election"
             />
             <ControlButton
-              onClick={() => updateStatus('closed')}
+              onClick={() => handleUpdateStatus('closed')}
               active={status === 'closed'}
               disabled={updating || status === 'closed'}
               color="slate"
@@ -165,7 +182,7 @@ export function ElectionControl() {
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Results Visibility</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ControlButton
-              onClick={() => updateVisibility('visible')}
+              onClick={() => handleUpdateVisibility('visible')}
               active={visibility === 'visible'}
               disabled={updating || visibility === 'visible'}
               color="blue"
@@ -173,7 +190,7 @@ export function ElectionControl() {
               label="Publish Results"
             />
             <ControlButton
-              onClick={() => updateVisibility('hidden')}
+              onClick={() => handleUpdateVisibility('hidden')}
               active={visibility === 'hidden'}
               disabled={updating || visibility === 'hidden'}
               color="slate"

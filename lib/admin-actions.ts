@@ -13,27 +13,43 @@ export async function logAdminAction(adminId: string, action: string, details: a
 }
 
 export async function updateElectionStatus(status: ElectionStatus, adminId: string) {
-  const { error } = await supabase
+  console.log('[Admin] Button clicked:', status);
+  const { data, error } = await supabase
     .from('election_settings')
     .update({ value: JSON.stringify(status) })
-    .eq('key', 'election_status');
+    .eq('key', 'election_status')
+    .select();
 
+  console.log('[Admin] Update result:', data);
+  console.log('[Admin] Update error:', error);
+  
   if (!error) {
     await logAdminAction(adminId, 'UPDATE_ELECTION_STATUS', { status });
   }
-  return { error };
+  return { data, error };
 }
 
 export async function updateResultsVisibility(visibility: ResultsVisibility, adminId: string) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('election_settings')
     .update({ value: JSON.stringify(visibility) })
-    .eq('key', 'results_visibility');
+    .eq('key', 'results_visibility')
+    .select();
 
   if (!error) {
     await logAdminAction(adminId, 'UPDATE_RESULTS_VISIBILITY', { visibility });
   }
-  return { error };
+  return { data, error };
+}
+
+export async function resetElectionVotes(adminId: string) {
+  const { data, error } = await supabase.rpc('reset_election_data');
+  
+  if (!error) {
+    await logAdminAction(adminId, 'RESET_ELECTION_VOTES', { timestamp: new Date().toISOString() });
+  }
+  
+  return { data, error };
 }
 
 export async function fetchStatistics() {

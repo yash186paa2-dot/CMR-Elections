@@ -1,14 +1,24 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import { AuthProvider } from '@/components/auth-provider';
 
-const inter = Inter({ subsets: ['latin'] });
+const jakarta = Plus_Jakarta_Sans({ 
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-jakarta',
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL('http://localhost:3000'),
   title: 'CMR Elections',
   description: 'CMR National PU College Student Council Elections',
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  },
   openGraph: {
     title: 'CMR Elections',
     description: 'CMR National PU College Student Council Elections',
@@ -23,7 +33,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={jakarta.className}>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

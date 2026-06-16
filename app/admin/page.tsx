@@ -4,6 +4,11 @@ import { useEffect, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
 import { ElectionControl } from '@/components/election-control';
 import { supabase, type Candidate } from '@/lib/supabase';
+import { resetElectionVotes } from '@/lib/admin-actions';
+import { useAuth } from '@/components/auth-provider';
+import { toast } from 'sonner';
+import Link from 'next/link';
+import Image from 'next/image';
 import {
   BarChart3,
   Users,
@@ -15,6 +20,10 @@ import {
   UserCheck,
   Calendar,
   ChevronRight,
+  ShieldAlert,
+  X,
+  UserRound,
+  RotateCcw,
 } from 'lucide-react';
 
 type Stats = {
@@ -37,6 +46,7 @@ type AuditLog = {
 };
 
 export default function AdminDashboard() {
+  const { user } = useAuth();
   const [stats, setStats] = useState<Stats>({
     totalCandidates: 0,
     totalVotes: 0,
@@ -48,6 +58,11 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [topCandidates, setTopCandidates] = useState<Candidate[]>([]);
   const [recentLogs, setRecentLogs] = useState<AuditLog[]>([]);
+
+  // Reset State
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -87,6 +102,32 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleResetVotes = async () => {
+    if (resetConfirmText !== 'RESET') {
+      toast.error('Please type RESET to confirm');
+      return;
+    }
+
+    if (!user) return;
+
+    try {
+      setIsResetting(true);
+      const { error } = await resetElectionVotes(user.id);
+      
+      if (error) throw error;
+      
+      toast.success('Election votes have been reset successfully');
+      setShowResetModal(false);
+      setResetConfirmText('');
+      await fetchData();
+    } catch (err) {
+      console.error('Error resetting votes:', err);
+      toast.error('Failed to reset election votes');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 10000); // Refresh every 10 seconds
@@ -100,6 +141,7 @@ export default function AdminDashboard() {
         {/* Real-time Stats Header */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <StatCard
+            href="/admin/results"
             icon={<VoteIcon className="w-5 h-5" />}
             label="Total Ballots Cast"
             value={stats.totalVotes.toLocaleString()}
@@ -107,6 +149,7 @@ export default function AdminDashboard() {
             color="blue"
           />
           <StatCard
+            href="/admin/results"
             icon={<UserCheck className="w-5 h-5" />}
             label="Voter Participation"
             value={`${stats.uniqueVoters.toLocaleString()}`}
@@ -114,6 +157,7 @@ export default function AdminDashboard() {
             color="indigo"
           />
           <StatCard
+            href="/admin/results"
             icon={<TrendingUp className="w-5 h-5" />}
             label="Current Turnout"
             value={`${stats.turnoutPercentage}%`}
@@ -121,6 +165,7 @@ export default function AdminDashboard() {
             color="emerald"
           />
           <StatCard
+            href="/admin/candidates"
             icon={<Users className="w-5 h-5" />}
             label="Active Candidates"
             value={stats.totalCandidates}
@@ -141,7 +186,9 @@ export default function AdminDashboard() {
                   <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">Candidate Leaderboard</h2>
                   <p className="text-xs text-slate-500 font-medium">Real-time leading contenders across all positions</p>
                 </div>
-                <BarChart3 className="w-5 h-5 text-slate-400" />
+                <Link href="/admin/results" className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                  <BarChart3 className="w-5 h-5 text-slate-400" />
+                </Link>
               </div>
               
               <div className="p-8">
@@ -161,12 +208,38 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 )}
+                <Link 
+                  href="/admin/results"
+                  className="w-full mt-6 py-4 rounded-xl border border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
+                >
+                  View Comprehensive Analytics <ChevronRight className="w-3 h-3" />
+                </Link>
               </div>
             </div>
           </div>
 
           {/* Sidebar: Activity & Info */}
           <div className="space-y-8">
+            {/* Reset Election (Danger Zone) */}
+            <div className="bg-white rounded-2xl border border-rose-100 overflow-hidden shadow-sm">
+              <div className="px-6 py-5 border-b border-rose-50 flex items-center justify-between bg-rose-50/30">
+                <h2 className="text-sm font-black text-rose-900 uppercase tracking-widest">System Maintenance</h2>
+                <ShieldAlert className="w-4 h-4 text-rose-600" />
+              </div>
+              <div className="p-6">
+                <p className="text-xs text-slate-500 font-medium leading-relaxed mb-6">
+                  Resetting votes will permanently clear all ballot data. Candidates and student registry will remain intact.
+                </p>
+                <button 
+                  onClick={() => setShowResetModal(true)}
+                  className="w-full py-4 px-4 rounded-xl bg-rose-600 text-[10px] font-black uppercase tracking-widest text-white hover:bg-rose-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-rose-200"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset Election Votes
+                </button>
+              </div>
+            </div>
+
             {/* Recent Activity */}
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
@@ -183,9 +256,9 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 )}
-                <button className="w-full mt-6 py-3 px-4 rounded-xl border border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:text-blue-600 transition-all flex items-center justify-center gap-2">
-                  View Full Audit Log <ChevronRight className="w-3 h-3" />
-                </button>
+                <div className="w-full mt-6 py-4 rounded-xl border border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-300 flex items-center justify-center gap-2 cursor-not-allowed">
+                  Audit Logs Managed via Database <ChevronRight className="w-3 h-3" />
+                </div>
               </div>
             </div>
 
@@ -209,13 +282,75 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Reset Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md animate-scale-in rounded-[2.5rem] bg-white p-10 shadow-2xl border border-rose-100">
+            <div className="flex justify-between items-center mb-8">
+              <div className="h-14 w-14 rounded-2xl bg-rose-50 flex items-center justify-center">
+                <ShieldAlert className="h-7 w-7 text-rose-600" />
+              </div>
+              <button 
+                onClick={() => setShowResetModal(false)}
+                className="p-2 text-slate-300 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-4">CRITICAL ACTION</h3>
+            <p className="text-slate-600 font-medium leading-relaxed mb-8">
+              This will permanently delete all votes and participation records. This action <span className="text-rose-600 font-black">CANNOT</span> be undone.
+            </p>
+
+            <div className="space-y-6">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                  Type "RESET" to confirm
+                </label>
+                <input 
+                  type="text" 
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  placeholder="RESET"
+                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-6 py-4 font-black text-slate-900 focus:border-rose-500 focus:bg-white focus:ring-4 focus:ring-rose-500/10 outline-none transition-all placeholder:text-slate-200"
+                />
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleResetVotes}
+                  disabled={resetConfirmText !== 'RESET' || isResetting}
+                  className="w-full py-5 rounded-2xl bg-rose-600 text-sm font-black uppercase tracking-widest text-white shadow-xl shadow-rose-200 disabled:opacity-30 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+                >
+                  {isResetting ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : (
+                    <>
+                      <RotateCcw className="h-5 w-5" />
+                      Confirm Reset
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowResetModal(false)}
+                  className="w-full py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }
 
-function StatCard({ icon, label, value, subvalue, trend, progress, color }: any) {
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all group">
+function StatCard({ icon, label, value, subvalue, trend, progress, color, href }: any) {
+  const content = (
+    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all group h-full cursor-pointer">
       <div className="flex items-start justify-between mb-4">
         <div className={`p-2.5 rounded-xl bg-blue-50 text-blue-600 group-hover:scale-110 transition-transform`}>
           {icon}
@@ -245,6 +380,11 @@ function StatCard({ icon, label, value, subvalue, trend, progress, color }: any)
       )}
     </div>
   );
+
+  if (href) {
+    return <Link href={href} className="block">{content}</Link>;
+  }
+  return content;
 }
 
 function LeaderboardItem({ candidate, index, maxVotes }: { candidate: Candidate; index: number; maxVotes: number }) {
@@ -259,6 +399,21 @@ function LeaderboardItem({ candidate, index, maxVotes }: { candidate: Candidate;
         'bg-slate-50 text-slate-400'
       }`}>
         {index + 1}
+      </div>
+
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-sm bg-slate-100">
+        {candidate.photo_url ? (
+          <Image
+            src={candidate.photo_url}
+            alt={candidate.name}
+            fill
+            className="object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-300">
+            <UserRound className="h-6 w-6" />
+          </div>
+        )}
       </div>
       
       <div className="flex-1 min-w-0">

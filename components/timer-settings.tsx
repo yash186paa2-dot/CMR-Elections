@@ -88,13 +88,23 @@ export function TimerSettings({ onSave }: Props) {
 
       const duration = timerDuration === 0 && customDuration ? Number(customDuration) : timerDuration;
 
-      const { error: saveError } = await supabase.from('election_settings').upsert([
-        { key: 'timer_enabled', value: timerEnabled },
-        { key: 'timer_duration', value: duration },
-        { key: 'timer_status', value: timerStatus },
-      ], { onConflict: 'key' });
+      // Use individual updates to avoid potential collisions with other settings like election_status
+      const { error: error1 } = await supabase
+        .from('election_settings')
+        .update({ value: timerEnabled })
+        .eq('key', 'timer_enabled');
+      
+      const { error: error2 } = await supabase
+        .from('election_settings')
+        .update({ value: duration })
+        .eq('key', 'timer_duration');
+      
+      const { error: error3 } = await supabase
+        .from('election_settings')
+        .update({ value: timerStatus })
+        .eq('key', 'timer_status');
 
-      if (saveError) throw saveError;
+      if (error1 || error2 || error3) throw (error1 || error2 || error3);
 
       onSave?.();
     } catch (err) {
